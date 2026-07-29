@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "https://bruval-backapp.vercel.app/api/$1"
+    }
+  ]
+}
