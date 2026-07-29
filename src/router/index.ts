@@ -8,10 +8,29 @@ const routes: Array<RouteRecordRaw> = [
     meta: { title: 'Home' },
   },
   {
-    path: '/pago/resultado',
+    path: '/pay-response',
     name: 'PaymentResult',
+    alias: '/pago/resultado',
     component: () => import('../views/PaymentResultView.vue'),
     meta: { title: 'Confirmando pago' },
+  },
+  {
+    path: '/admin/login',
+    name: 'AdminLogin',
+    component: () => import('../views/AdminLoginView.vue'),
+    meta: { title: 'Administración' },
+  },
+  {
+    path: '/admin',
+    name: 'AdminDashboard',
+    component: () => import('../views/AdminDashboardView.vue'),
+    meta: { title: 'Ventas Bruval', requiresAuth: true },
+  },
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'NotFound',
+    component: () => import('../views/NotFoundView.vue'),
+    meta: { title: 'Página no encontrada' },
   },
 ]
 
