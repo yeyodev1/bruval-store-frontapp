@@ -32,6 +32,10 @@ class StoreApi extends APIBase {
     return this.post<{ orderNumber: string; total: number; payphone: { token?: string; storeId?: string } }>('orders', payload)
   }
 
+  lookupOrders(value: string) {
+    return this.post<Array<{ orderNumber: string; items: Array<{ name: string; price: number; quantity: number }>; total: number; status: string; createdAt: string; delivery: { recipient: string; address: string; mapUrl: string; date: string; timeSlot: string; messageCard: string } }>>('orders/lookup', { value })
+  }
+
   confirmPayphonePayment(id: string, clientTransactionId: string) {
     return this.post<{ approved: boolean; orderNumber: string; message: string; order: { items: Array<{ name: string; price: number; quantity: number }>; total: number; customer: { name: string; email: string; phone: string }; delivery: { recipient: string; address: string; mapUrl: string; date: string; timeSlot: string; messageCard: string }; status: string } }>('payments/payphone/confirm', { id, clientTransactionId })
   }
