@@ -43,6 +43,7 @@ const isCartOpen = ref(false);
 const selected = ref<Product | null>(null);
 const isCheckoutOpen = ref(false);
 const isCheckoutWhatsAppOpen = ref(false);
+const isCheckoutWhatsAppConfirmationOpen = ref(false);
 const checkoutStep = ref<"details" | "payment">("details");
 const isSubmitting = ref(false);
 const errorMessage = ref("");
@@ -394,13 +395,14 @@ watch(availableDeliverySlots, (slots) => {
 
     <Transition name="fade"
       ><div
-        v-if="isCartOpen || selected || isCheckoutOpen || isCheckoutWhatsAppOpen"
+        v-if="isCartOpen || selected || isCheckoutOpen || isCheckoutWhatsAppOpen || isCheckoutWhatsAppConfirmationOpen"
         class="backdrop"
         @click.self="
           isCartOpen = false;
           selected = null;
           isCheckoutOpen = false;
           isCheckoutWhatsAppOpen = false;
+          isCheckoutWhatsAppConfirmationOpen = false;
         "
       ></div
     ></Transition>
@@ -620,7 +622,19 @@ watch(availableDeliverySlots, (slots) => {
         <p>Por WhatsApp, un asesor te ayudará según disponibilidad.</p>
         <p>Enviaremos un resumen de tu selección y entrega para atenderte sin pedirte los datos otra vez. Por favor, no modifiques el primer mensaje.</p>
         <p class="whatsapp-note">No incluye códigos ni descuentos promocionales.</p>
-        <a :href="checkoutWhatsApp" target="_blank" rel="noopener" @click="isCheckoutWhatsAppOpen = false">Entiendo: WhatsApp no reserva mi pedido →</a>
+        <button type="button" @click="isCheckoutWhatsAppOpen = false; isCheckoutWhatsAppConfirmationOpen = true">Entiendo: WhatsApp no reserva mi pedido →</button>
+      </aside>
+    </Transition>
+    <Transition name="modal">
+      <aside v-if="isCheckoutWhatsAppConfirmationOpen" class="modal checkout-whatsapp-modal checkout-whatsapp-confirmation" role="dialog" aria-modal="true" aria-labelledby="whatsapp-confirmation-title">
+        <button class="close" type="button" aria-label="Cerrar" @click="isCheckoutWhatsAppConfirmationOpen = false">×</button>
+        <p class="eyebrow">Confirmación final</p>
+        <h2 id="whatsapp-confirmation-title">¿Estás seguro?</h2>
+        <p>Al continuar por WhatsApp, tu pedido seguirá sujeto a disponibilidad y no tendrá la confirmación ni la reserva inmediata del pago por web.</p>
+        <div class="whatsapp-confirmation-actions">
+          <button type="button" @click="isCheckoutWhatsAppConfirmationOpen = false">Volver al pago web</button>
+          <a :href="checkoutWhatsApp" target="_blank" rel="noopener" @click="isCheckoutWhatsAppConfirmationOpen = false">Sí, continuar por WhatsApp →</a>
+        </div>
       </aside>
     </Transition>
   </main>
@@ -1202,7 +1216,7 @@ footer .brand {
   cursor: pointer;
 }
 .checkout-whatsapp-modal {
-  z-index: 11;
+  z-index: 12;
   width: min(440px, 90vw);
   box-sizing: border-box;
   padding: 54px 38px 38px;
@@ -1225,8 +1239,12 @@ footer .brand {
   color: #9a4f58;
   font-size: 12px;
 }
-.checkout-whatsapp-modal a {
+.checkout-whatsapp-modal a,
+.checkout-whatsapp-modal > button:not(.close) {
   display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
   margin-top: 24px;
   padding: 15px 16px;
   color: #fffaf6;
@@ -1234,6 +1252,27 @@ footer .brand {
   text-align: center;
   text-decoration: none;
   font: 600 12px $font-principal;
+  cursor: pointer;
+}
+.whatsapp-confirmation-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 24px;
+}
+.whatsapp-confirmation-actions a,
+.whatsapp-confirmation-actions button {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+}
+.whatsapp-confirmation-actions button {
+  border: 1px solid #9a4f58;
+  padding: 14px 16px;
+  color: #9a4f58;
+  background: transparent;
+  font: 600 12px $font-principal;
+  cursor: pointer;
 }
 .checkout-total {
   justify-content: space-between;
