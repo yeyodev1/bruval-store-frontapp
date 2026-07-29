@@ -1,0 +1,27 @@
+@use './colorVariables.module.scss' as *;
+@use './fonts.module.scss' as *;
+
+html, body {
+  background-color: $white;
+  margin: 0;
+  font-family: $font-principal;
+}
+
+:root {
+  --bg: #{$white};
+  --text: #{$primary-dark};
+  --border: #{rgba($primary-dark, 0.08)};
+  --accent: #{$primary};
+}
+
+[data-theme='dark'] {
+  --bg: #{$primary-dark};
+  --text: #{$text-light};
+  --border: #{rgba($white, 0.12)};
+  --accent: #{$primary};
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text);
+}
