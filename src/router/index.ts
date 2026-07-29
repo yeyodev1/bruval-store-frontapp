@@ -21,6 +21,12 @@ const routes: Array<RouteRecordRaw> = [
     meta: { title: 'Administración' },
   },
   {
+    path: '/pedido',
+    name: 'OrderLookup',
+    component: () => import('../views/OrderLookupView.vue'),
+    meta: { title: 'Buscar pedido' },
+  },
+  {
     path: '/admin',
     name: 'AdminDashboard',
     component: () => import('../views/AdminDashboardView.vue'),

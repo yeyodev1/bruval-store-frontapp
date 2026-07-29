@@ -11,7 +11,23 @@ const isAdvisorModalOpen = ref(false)
 const order = ref<{ items: Array<{ name: string; price: number; quantity: number }>; total: number; customer: { name: string; email: string; phone: string }; delivery: { recipient: string; address: string; mapUrl: string; date: string; timeSlot: string; messageCard: string } } | null>(null)
 const formatPrice = (value: number) => `$${value.toFixed(2)}`
 const advisorWhatsApp = computed(() => {
-  const message = `Hola, acabo de pagar mi pedido Bruval ${orderNumber.value} por PayPhone. Por favor no modifiques este primer mensaje para que un asesor pueda atenderte más rápido.`
+  const details = order.value
+  const items = details?.items.map((item) => `- ${item.quantity} x ${item.name}: ${formatPrice(item.price * item.quantity)}`).join('\n') || ''
+  const message = [
+    `Hola, equipo Bruval. Ya realicé el pago de mi pedido ${orderNumber.value} por PayPhone.`,
+    '',
+    'Gracias por acompañarme en este momento especial. Quisiera confirmar que la coordinación de mi entrega está en orden.',
+    '',
+    `Resumen de mi pedido:\n${items}`,
+    details ? `Total pagado: ${formatPrice(details.total)}` : '',
+    details ? `Entrega: ${details.delivery.date}, ${details.delivery.timeSlot}` : '',
+    details ? `Recibe: ${details.delivery.recipient}` : '',
+    details ? `Dirección: ${details.delivery.address}` : '',
+    details?.delivery.mapUrl ? `Ubicación: ${details.delivery.mapUrl}` : '',
+    details?.delivery.messageCard ? `Mensaje de tarjeta: ${details.delivery.messageCard}` : '',
+    '',
+    'Quedo atento/a a su confirmación. Muchas gracias.',
+  ].filter(Boolean).join('\n')
   return `https://wa.me/593999480437?text=${encodeURIComponent(message)}`
 })
 
@@ -51,12 +67,12 @@ onMounted(async () => {
         <div class="portal-head"><span>Pago confirmado por PayPhone</span><strong>{{ formatPrice(order.total) }}</strong></div>
         <div v-for="item in order.items" :key="item.name" class="portal-row"><span>{{ item.quantity }} x {{ item.name }}</span><strong>{{ formatPrice(item.price * item.quantity) }}</strong></div>
         <div class="portal-delivery"><strong>Entrega</strong><p>Para {{ order.delivery.recipient }} · {{ order.delivery.date }}, {{ order.delivery.timeSlot }}</p><p>{{ order.delivery.address }}</p><p class="message-card">“{{ order.delivery.messageCard }}”</p><a :href="order.delivery.mapUrl" target="_blank" rel="noopener">Ver ubicación en Google Maps ↗</a></div>
-        <div class="portal-next"><strong>¿Qué sigue?</strong><p>Tu pago fue confirmado con PayPhone. Un asesor de Bruval se pondrá en contacto al número confirmado <b>{{ order.customer.phone }}</b>. También enviamos un correo de respaldo a <b>{{ order.customer.email }}</b>.</p><button class="advisor" type="button" @click="isAdvisorModalOpen = true">Escribir a un asesor por WhatsApp ↗</button><small>No modifiques el primer mensaje de WhatsApp para que podamos atenderte más rápido.</small></div>
+        <div class="portal-next"><strong>¿Qué sigue?</strong><p>Tu pago fue confirmado con PayPhone. Un asesor de Bruval se pondrá en contacto al número confirmado <b>{{ order.customer.phone }}</b>. También enviamos un correo de respaldo a <b>{{ order.customer.email }}</b>.</p><button class="advisor" type="button" @click="isAdvisorModalOpen = true">Escribir a un asesor por WhatsApp ↗</button><small>El mensaje incluye tu pedido y los datos de entrega para que podamos ayudarte de inmediato.</small></div>
       </div>
       <a href="/" class="button">Volver a Bruval <span>→</span></a>
     </section>
     <Transition name="fade"><div v-if="isAdvisorModalOpen" class="backdrop" @click="isAdvisorModalOpen = false"></div></Transition>
-    <Transition name="modal"><aside v-if="isAdvisorModalOpen" class="advisor-modal"><button type="button" @click="isAdvisorModalOpen = false">×</button><p class="eyebrow">Antes de continuar</p><h2>No modifiques<br>el mensaje.</h2><p>El primer mensaje incluye tu número de pedido. Déjalo tal cual para que el asesor de Bruval pueda atenderte más rápido.</p><a :href="advisorWhatsApp" target="_blank" rel="noopener">Entendido, abrir WhatsApp →</a></aside></Transition>
+    <Transition name="modal"><aside v-if="isAdvisorModalOpen" class="advisor-modal"><button type="button" @click="isAdvisorModalOpen = false">×</button><p class="eyebrow">Estamos contigo</p><h2>Tu entrega<br>está en buenas manos.</h2><p>Prepararemos un mensaje con el resumen de tu pedido para que nuestro equipo pueda orientarte y coordinar contigo sin pedirte los datos otra vez.</p><a :href="advisorWhatsApp" target="_blank" rel="noopener">Abrir WhatsApp con mi resumen →</a></aside></Transition>
   </main>
 </template>
 

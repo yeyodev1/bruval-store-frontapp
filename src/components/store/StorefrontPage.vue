@@ -42,6 +42,7 @@ const isLoading = ref(true);
 const isCartOpen = ref(false);
 const selected = ref<Product | null>(null);
 const isCheckoutOpen = ref(false);
+const isCheckoutWhatsAppOpen = ref(false);
 const checkoutStep = ref<"details" | "payment">("details");
 const isSubmitting = ref(false);
 const errorMessage = ref("");
@@ -64,6 +65,22 @@ const total = computed(() => subtotal.value + deliveryFee.value);
 const formatPrice = (value: number) => `$${value.toFixed(2)}`;
 const offerRemaining = computed(() => Math.max(0, new Date(offer.value?.expiresAt || 0).getTime() - now.value));
 const isOfferActive = computed(() => Boolean(offer.value?.active && offerRemaining.value > 0));
+const checkoutWhatsApp = computed(() => {
+  const items = cart.value.map((item) => `- ${item.quantity} x ${item.name}`).join("\n");
+  const message = [
+    "Hola, equipo Bruval. Estoy preparando una compra y me gustaría que me acompañen.",
+    "",
+    "Quisiera confirmar que todo está bien antes de pagar y recibir apoyo para coordinar una entrega especial.",
+    "",
+    `Mi selección:\n${items || "Aún estoy eligiendo mis flores."}`,
+    cart.value.length ? `Total estimado: ${formatPrice(total.value)}` : "",
+    checkout.value.firstName ? `Mi nombre: ${checkout.value.firstName} ${checkout.value.lastName}`.trim() : "",
+    checkout.value.date ? `Entrega deseada: ${checkout.value.date}, ${checkout.value.timeSlot}` : "",
+    "",
+    "Gracias por ayudarme a que este gesto llegue de la mejor manera.",
+  ].filter(Boolean).join("\n");
+  return `https://wa.me/593999480437?text=${encodeURIComponent(message)}`;
+});
 const countdown = computed(() => {
   const totalSeconds = Math.floor(offerRemaining.value / 1000);
   const hours = Math.floor(totalSeconds / 3600);
@@ -125,6 +142,11 @@ function openCheckout() {
   isCheckoutOpen.value = true;
   checkoutStep.value = "details";
   errorMessage.value = "";
+}
+
+function openCheckoutWhatsApp() {
+  openCheckout();
+  isCheckoutWhatsAppOpen.value = true;
 }
 
 async function beginPayment() {
@@ -261,6 +283,7 @@ watch(availableDeliverySlots, (slots) => {
       <nav class="nav" aria-label="Navegación principal">
         <a class="brand" href="#inicio">bruval<span>.</span></a>
         <a class="nav-link" href="#coleccion">Colección</a>
+        <a class="nav-link" href="/pedido">¿Ya tienes un pedido?</a>
         <p class="nav-note">Flores para sentir cerca</p>
         <button class="cart-trigger" type="button" @click="isCartOpen = true">
           <span>Bolsa</span>
@@ -371,12 +394,13 @@ watch(availableDeliverySlots, (slots) => {
 
     <Transition name="fade"
       ><div
-        v-if="isCartOpen || selected || isCheckoutOpen"
+        v-if="isCartOpen || selected || isCheckoutOpen || isCheckoutWhatsAppOpen"
         class="backdrop"
         @click.self="
           isCartOpen = false;
           selected = null;
           isCheckoutOpen = false;
+          isCheckoutWhatsAppOpen = false;
         "
       ></div
     ></Transition>
@@ -426,6 +450,9 @@ watch(availableDeliverySlots, (slots) => {
           <button class="primary-button" type="button" @click="openCheckout">
             Continuar al checkout <span>→</span>
           </button>
+          <button class="whatsapp-button" type="button" @click="openCheckoutWhatsApp">
+            Terminar compra por WhatsApp ↗
+          </button>
         </div>
       </aside></Transition
     >
@@ -467,10 +494,11 @@ watch(availableDeliverySlots, (slots) => {
           <p>
             {{
               checkoutStep === "details"
-                ? "Cuéntanos dónde y cuándo debe llegar este gesto."
+                ? "Estaremos contigo en cada paso. Cuéntanos dónde y cuándo debe llegar este gesto. Al finalizar tu compra verás un botón de WhatsApp para hablar con nuestro equipo cuando lo necesites."
                 : "Completa tu pago seguro con PayPhone. Tu selección está reservada."
             }}
           </p>
+          <button v-if="checkoutStep === 'details'" class="checkout-whatsapp" type="button" @click="isCheckoutWhatsAppOpen = true">Terminar compra por WhatsApp ↗</button>
           <div class="checkout-total">
             <span>Total</span><strong>{{ formatPrice(total) }}</strong>
           </div>
@@ -583,6 +611,18 @@ watch(availableDeliverySlots, (slots) => {
         </div>
       </section></Transition
     >
+    <Transition name="modal">
+      <aside v-if="isCheckoutWhatsAppOpen" class="modal checkout-whatsapp-modal" role="dialog" aria-modal="true" aria-labelledby="whatsapp-checkout-title">
+        <button class="close" type="button" aria-label="Cerrar" @click="isCheckoutWhatsAppOpen = false">×</button>
+        <p class="eyebrow">Compra por WhatsApp</p>
+        <h2 id="whatsapp-checkout-title">Estamos contigo<br>en cada paso.</h2>
+        <p class="priority-warning">Importante: al continuar por WhatsApp, tu pedido no queda confirmado ni reservado. La compra y el pago por esta web tienen prioridad máxima y confirman tu selección al instante.</p>
+        <p>Por WhatsApp, un asesor te ayudará según disponibilidad.</p>
+        <p>Enviaremos un resumen de tu selección y entrega para atenderte sin pedirte los datos otra vez. Por favor, no modifiques el primer mensaje.</p>
+        <p class="whatsapp-note">No incluye códigos ni descuentos promocionales.</p>
+        <a :href="checkoutWhatsApp" target="_blank" rel="noopener" @click="isCheckoutWhatsAppOpen = false">Entiendo: WhatsApp no reserva mi pedido →</a>
+      </aside>
+    </Transition>
   </main>
 </template>
 
@@ -1064,6 +1104,19 @@ footer .brand {
   font-size: 20px;
   line-height: 0;
 }
+.whatsapp-button {
+  width: 100%;
+  border: 1px solid #427a55;
+  padding: 14px 18px;
+  color: #427a55;
+  background: transparent;
+  font: 600 12px $font-principal;
+  cursor: pointer;
+}
+.whatsapp-button:hover {
+  color: #fffaf6;
+  background: #427a55;
+}
 .empty-state {
   margin: auto;
   text-align: center;
@@ -1135,6 +1188,52 @@ footer .brand {
   color: #706663;
   line-height: 1.6;
   font-size: 14px;
+}
+.checkout-whatsapp {
+  display: inline-block;
+  border: 0;
+  padding: 0;
+  margin-bottom: 22px;
+  color: #427a55;
+  background: transparent;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.checkout-whatsapp-modal {
+  z-index: 11;
+  width: min(440px, 90vw);
+  box-sizing: border-box;
+  padding: 54px 38px 38px;
+}
+.checkout-whatsapp-modal h2 {
+  margin: 16px 0 24px;
+  font-size: 42px;
+  line-height: 0.92;
+}
+.checkout-whatsapp-modal > p:not(.eyebrow) {
+  color: #706663;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.checkout-whatsapp-modal .priority-warning {
+  color: #9a4f58;
+  font-weight: 600;
+}
+.checkout-whatsapp-modal .whatsapp-note {
+  color: #9a4f58;
+  font-size: 12px;
+}
+.checkout-whatsapp-modal a {
+  display: block;
+  margin-top: 24px;
+  padding: 15px 16px;
+  color: #fffaf6;
+  background: #427a55;
+  text-align: center;
+  text-decoration: none;
+  font: 600 12px $font-principal;
 }
 .checkout-total {
   justify-content: space-between;
