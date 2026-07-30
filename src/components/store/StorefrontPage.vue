@@ -42,7 +42,6 @@ const isLoading = ref(true);
 const isCartOpen = ref(false);
 const selected = ref<Product | null>(null);
 const loadedImages = ref(new Set<string>());
-const activeCategory = ref("Todos");
 const isCheckoutOpen = ref(false);
 const isCheckoutWhatsAppOpen = ref(false);
 const isCheckoutWhatsAppConfirmationOpen = ref(false);
@@ -66,8 +65,7 @@ const subtotal = computed(() =>
 const deliveryFee = computed(() => (cart.value.length ? 4.5 : 0));
 const total = computed(() => subtotal.value + deliveryFee.value);
 const formatPrice = (value: number) => `$${value.toFixed(2)}`;
-const categories = computed(() => ["Todos", ...Array.from(new Set(products.value.flatMap((product) => product.categories || []))).sort((a, b) => a.localeCompare(b, "es"))]);
-const filteredProducts = computed(() => activeCategory.value === "Todos" ? products.value : products.value.filter((product) => product.categories?.includes(activeCategory.value)));
+const homeProducts = computed(() => products.value.filter((product) => ["Rosas preservadas", "Girasoles preservados", "Árbol de Amor", "Love Collection"].includes(product.collection)).slice(0, 10));
 
 function markImageLoaded(src: string) {
   loadedImages.value = new Set(loadedImages.value).add(src);
@@ -330,20 +328,17 @@ watch(availableDeliverySlots, (slots) => {
     <section id="coleccion" class="collection">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">La colección</p>
-          <h2>Flores que<br />hablan por ti.</h2>
+          <p class="eyebrow">Preservadas para siempre</p>
+          <h2>Detalles que<br />perduran.</h2>
         </div>
         <p>
-          Una selección de arreglos de temporada preparados con flores frescas,
-          textura y mucho cuidado.
+          Diez creaciones preservadas para celebrar, agradecer y acompañar los
+          momentos que importan.
         </p>
       </div>
       <p v-if="errorMessage && !isCheckoutOpen" class="error">
         {{ errorMessage }}
       </p>
-      <div v-if="categories.length > 1" class="category-filters" aria-label="Filtrar por categoría">
-        <button v-for="category in categories" :key="category" type="button" :class="{ active: activeCategory === category }" @click="activeCategory = category">{{ category }}</button>
-      </div>
       <div class="product-list">
         <template v-if="isLoading"
           ><article
@@ -356,7 +351,7 @@ watch(availableDeliverySlots, (slots) => {
             <div class="skeleton-line short"></div></article
         ></template>
         <article
-          v-for="product in filteredProducts"
+          v-for="product in homeProducts"
           :key="product._id"
           class="product-card"
         >
@@ -382,12 +377,8 @@ watch(availableDeliverySlots, (slots) => {
                 <del v-if="product.regularPrice">{{ formatPrice(product.regularPrice) }}</del>
                 <strong>{{ formatPrice(product.price) }}</strong>
               </div>
-              <button
-                type="button"
-                aria-label="Agregar al carrito"
-                @click="addToCart(product)"
-              >
-                +
+              <button class="product-purchase" type="button" @click="addToCart(product)">
+                Comprar ahora <span>→</span>
               </button>
             </div>
           </div>
@@ -925,30 +916,6 @@ h1 i {
   flex-wrap: wrap;
   gap: 48px 2%;
 }
-.category-filters {
-  display: flex;
-  gap: 8px;
-  margin: -32px 0 42px;
-  overflow-x: auto;
-  padding-bottom: 4px;
-}
-.category-filters button {
-  flex: 0 0 auto;
-  border: 1px solid #d9c8c0;
-  padding: 9px 13px;
-  color: #706663;
-  background: transparent;
-  font: 600 10px $font-principal;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  transition: 0.2s ease;
-}
-.category-filters button:hover,
-.category-filters button.active {
-  border-color: #a9473f;
-  color: #fffaf6;
-  background: #a9473f;
-}
 .product-card {
   width: calc(25% - 1.5%);
   min-width: 210px;
@@ -1036,6 +1003,22 @@ h1 i {
   color: #fffaf6;
   background: #211817;
   border-color: #211817;
+}
+.product-bottom .product-purchase {
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  padding: 9px 12px;
+  color: #fffaf6;
+  border-color: #211817;
+  background: #211817;
+  font: 600 10px $font-principal;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.product-bottom .product-purchase:hover {
+  color: #211817;
+  background: transparent;
 }
 .skeleton .product-image,
 .skeleton-line {
