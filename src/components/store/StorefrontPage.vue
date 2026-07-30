@@ -41,6 +41,7 @@ const cart = ref<CartItem[]>(readStored<CartItem[]>("bruval-cart", []));
 const isLoading = ref(true);
 const isCartOpen = ref(false);
 const selected = ref<Product | null>(null);
+const loadedImages = ref(new Set<string>());
 const isCheckoutOpen = ref(false);
 const isCheckoutWhatsAppOpen = ref(false);
 const isCheckoutWhatsAppConfirmationOpen = ref(false);
@@ -64,6 +65,10 @@ const subtotal = computed(() =>
 const deliveryFee = computed(() => (cart.value.length ? 4.5 : 0));
 const total = computed(() => subtotal.value + deliveryFee.value);
 const formatPrice = (value: number) => `$${value.toFixed(2)}`;
+
+function markImageLoaded(src: string) {
+  loadedImages.value = new Set(loadedImages.value).add(src);
+}
 const offerRemaining = computed(() => Math.max(0, new Date(offer.value?.expiresAt || 0).getTime() - now.value));
 const isOfferActive = computed(() => Boolean(offer.value?.active && offerRemaining.value > 0));
 const checkoutWhatsApp = computed(() => {
@@ -309,10 +314,11 @@ watch(availableDeliverySlots, (slots) => {
         </p>
         <a href="#coleccion" class="text-link">{{ isOfferActive ? "Comprar antes que termine" : "Ver colección" }} <span>↓</span></a>
       </div>
-      <div class="hero-image">
+      <div class="hero-image image-loading" :class="{ 'image-ready': loadedImages.has('hero') }">
         <img
           src="https://images.unsplash.com/photo-1490750967868-88aa4486c946?auto=format&fit=crop&w=1500&q=90"
           alt="Arreglo floral Bruval"
+          @load="markImageLoaded('hero')"
         />
         <p>Hecho para tu momento</p>
       </div>
@@ -349,11 +355,12 @@ watch(availableDeliverySlots, (slots) => {
           class="product-card"
         >
           <button
-            class="product-image"
+            class="product-image image-loading"
+            :class="{ 'image-ready': loadedImages.has(product.image) }"
             type="button"
             @click="selected = product"
           >
-            <img :src="product.image" :alt="product.name" /><span>{{
+            <img :src="product.image" :alt="product.name" @load="markImageLoaded(product.image)" /><span>{{
               product.palette
             }}</span>
           </button>
@@ -464,8 +471,10 @@ watch(availableDeliverySlots, (slots) => {
     <Transition name="modal"
       ><section v-if="selected" class="modal product-modal">
         <button class="close" type="button" @click="selected = null">×</button
-        ><img :src="selected.image" :alt="selected.name" />
-        <div>
+        ><div class="product-modal-image image-loading" :class="{ 'image-ready': loadedImages.has(selected.image) }">
+          <img :src="selected.image" :alt="selected.name" @load="markImageLoaded(selected.image)" />
+        </div>
+        <div class="product-modal-content">
           <p class="eyebrow">{{ selected.palette }}</p>
           <h2>{{ selected.name }}</h2>
           <dl class="product-specs">
@@ -852,6 +861,32 @@ h1 i {
 .product-image:hover img {
   transform: scale(1.04);
 }
+.image-loading::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background: linear-gradient(105deg, #eadfd9 25%, #f7f0eb 45%, #eadfd9 65%);
+  background-size: 220% 100%;
+  animation: image-shimmer 1.4s ease-in-out infinite;
+  content: "";
+  pointer-events: none;
+}
+.image-loading img {
+  opacity: 0;
+  transition: opacity 0.38s ease;
+}
+.image-loading.image-ready::after {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.image-loading.image-ready img {
+  opacity: 1;
+}
+@keyframes image-shimmer {
+  to {
+    background-position: -120% 0;
+  }
+}
 .hero-image p {
   position: absolute;
   right: 18px;
@@ -1174,12 +1209,19 @@ footer .brand {
   width: min(850px, 92vw);
   display: flex;
 }
-.product-modal > img {
+.product-modal-image {
+  flex: 0 0 48%;
   width: 48%;
   min-height: 510px;
+  position: relative;
+  overflow: hidden;
+}
+.product-modal-image img {
+  width: 100%;
+  height: 100%;
   object-fit: cover;
 }
-.product-modal > div {
+.product-modal-content {
   flex: 1;
   padding: 70px 52px;
   display: flex;
@@ -1232,7 +1274,7 @@ footer .brand {
   font: 600 24px "DM Mono", monospace;
   letter-spacing: -0.06em;
 }
-.product-modal > div > p:not(.eyebrow) {
+.product-modal-content > p:not(.eyebrow) {
   margin: 28px 0;
   color: #706663;
   line-height: 1.6;
@@ -1544,12 +1586,12 @@ textarea {
     overflow: auto;
     flex-direction: column;
   }
-  .product-modal > img {
+  .product-modal-image {
     width: 100%;
     min-height: 250px;
     max-height: 300px;
   }
-  .product-modal > div {
+  .product-modal-content {
     padding: 38px 28px;
   }
   .product-specs {
