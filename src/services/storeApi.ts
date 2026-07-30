@@ -6,10 +6,13 @@ export interface Product {
   slug: string
   sku: string
   collection: string
+  categories: string[]
   dimensions: string
   description: string
   price: number
   regularPrice?: number
+  discountPercentage?: number
+  webExclusive: boolean
   image: string
   palette: string
   featured: boolean

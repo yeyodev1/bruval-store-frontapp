@@ -42,6 +42,7 @@ const isLoading = ref(true);
 const isCartOpen = ref(false);
 const selected = ref<Product | null>(null);
 const loadedImages = ref(new Set<string>());
+const activeCategory = ref("Todos");
 const isCheckoutOpen = ref(false);
 const isCheckoutWhatsAppOpen = ref(false);
 const isCheckoutWhatsAppConfirmationOpen = ref(false);
@@ -65,6 +66,8 @@ const subtotal = computed(() =>
 const deliveryFee = computed(() => (cart.value.length ? 4.5 : 0));
 const total = computed(() => subtotal.value + deliveryFee.value);
 const formatPrice = (value: number) => `$${value.toFixed(2)}`;
+const categories = computed(() => ["Todos", ...Array.from(new Set(products.value.flatMap((product) => product.categories || []))).sort((a, b) => a.localeCompare(b, "es"))]);
+const filteredProducts = computed(() => activeCategory.value === "Todos" ? products.value : products.value.filter((product) => product.categories?.includes(activeCategory.value)));
 
 function markImageLoaded(src: string) {
   loadedImages.value = new Set(loadedImages.value).add(src);
@@ -338,6 +341,9 @@ watch(availableDeliverySlots, (slots) => {
       <p v-if="errorMessage && !isCheckoutOpen" class="error">
         {{ errorMessage }}
       </p>
+      <div v-if="categories.length > 1" class="category-filters" aria-label="Filtrar por categoría">
+        <button v-for="category in categories" :key="category" type="button" :class="{ active: activeCategory === category }" @click="activeCategory = category">{{ category }}</button>
+      </div>
       <div class="product-list">
         <template v-if="isLoading"
           ><article
@@ -350,7 +356,7 @@ watch(availableDeliverySlots, (slots) => {
             <div class="skeleton-line short"></div></article
         ></template>
         <article
-          v-for="product in products"
+          v-for="product in filteredProducts"
           :key="product._id"
           class="product-card"
         >
@@ -363,6 +369,7 @@ watch(availableDeliverySlots, (slots) => {
             <img :src="product.image" :alt="product.name" @load="markImageLoaded(product.image)" /><span>{{
               product.palette
             }}</span>
+            <b v-if="product.webExclusive" class="web-exclusive">Web exclusivo · {{ product.discountPercentage }}% OFF</b>
           </button>
           <div class="product-info">
             <div>
@@ -476,6 +483,7 @@ watch(availableDeliverySlots, (slots) => {
         </div>
         <div class="product-modal-content">
           <p class="eyebrow">{{ selected.palette }}</p>
+          <p v-if="selected.webExclusive" class="web-exclusive modal-exclusive">Oferta exclusiva web · {{ selected.discountPercentage }}% OFF</p>
           <h2>{{ selected.name }}</h2>
           <dl class="product-specs">
             <div>
@@ -917,6 +925,30 @@ h1 i {
   flex-wrap: wrap;
   gap: 48px 2%;
 }
+.category-filters {
+  display: flex;
+  gap: 8px;
+  margin: -32px 0 42px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.category-filters button {
+  flex: 0 0 auto;
+  border: 1px solid #d9c8c0;
+  padding: 9px 13px;
+  color: #706663;
+  background: transparent;
+  font: 600 10px $font-principal;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: 0.2s ease;
+}
+.category-filters button:hover,
+.category-filters button.active {
+  border-color: #a9473f;
+  color: #fffaf6;
+  background: #a9473f;
+}
 .product-card {
   width: calc(25% - 1.5%);
   min-width: 210px;
@@ -941,6 +973,23 @@ h1 i {
   font: 500 9px $font-principal;
   letter-spacing: 1px;
   text-transform: uppercase;
+}
+.web-exclusive {
+  position: absolute;
+  z-index: 2;
+  right: 12px;
+  bottom: 12px;
+  padding: 7px 9px;
+  color: #fffaf6;
+  background: #a9473f;
+  font: 600 9px $font-principal;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.modal-exclusive {
+  position: static;
+  margin: 18px 0 -8px;
+  display: inline-block;
 }
 .product-info {
   display: flex;
