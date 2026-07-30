@@ -33,6 +33,12 @@ const routes: Array<RouteRecordRaw> = [
     meta: { title: 'Ventas Bruval', requiresAuth: true, noindex: true },
   },
   {
+    path: '/admin/productos',
+    name: 'AdminProducts',
+    component: () => import('../views/AdminProductsView.vue'),
+    meta: { title: 'Catálogo Bruval', requiresAuth: true, noindex: true },
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
     component: () => import('../views/NotFoundView.vue'),
@@ -53,11 +59,11 @@ router.beforeEach((to, _from, next) => {
   const requiresAuth = to.matched.some((record) => record.meta?.requiresAuth)
 
   if (requiresAuth && !hasToken) {
-    return next({ path: '/login', replace: true })
+    return next({ path: '/admin/login', replace: true })
   }
 
-  if (to.path === '/login' && hasToken) {
-    return next({ path: '/', replace: true })
+  if (to.path === '/admin/login' && hasToken) {
+    return next({ path: '/admin', replace: true })
   }
 
   next()
