@@ -4,6 +4,9 @@ export interface Product {
   _id: string
   name: string
   slug: string
+  sku: string
+  collection: string
+  dimensions: string
   description: string
   price: number
   regularPrice?: number

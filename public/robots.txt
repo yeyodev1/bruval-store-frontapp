@@ -6,4 +6,4 @@ Disallow: /pay-response
 Disallow: /pago/resultado
 Disallow: /pedido
 
-Sitemap: https://testing-storybrand-frontend.bakano.ec/sitemap.xml
+Sitemap: https://store.bruval.com.ec/sitemap.xml

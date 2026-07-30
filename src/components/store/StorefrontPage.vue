@@ -238,6 +238,7 @@ async function renderPayphone() {
       token: payment.value.token,
       storeId: payment.value.storeId,
       clientTransactionId: orderNumber.value,
+      responseUrl: `${window.location.origin}/pay-response`,
       amount: Math.round(total.value * 100),
       amountWithoutTax: Math.round(total.value * 100),
       currency: "USD",
@@ -359,6 +360,7 @@ watch(availableDeliverySlots, (slots) => {
           <div class="product-info">
             <div>
               <h3>{{ product.name }}</h3>
+              <p>{{ product.sku }} · {{ product.dimensions }}</p>
               <p>{{ product.description }}</p>
             </div>
             <div class="product-bottom">
@@ -466,6 +468,20 @@ watch(availableDeliverySlots, (slots) => {
         <div>
           <p class="eyebrow">{{ selected.palette }}</p>
           <h2>{{ selected.name }}</h2>
+          <dl class="product-specs">
+            <div>
+              <dt>Medidas</dt>
+              <dd>{{ selected.dimensions }}</dd>
+            </div>
+            <div>
+              <dt>Colección</dt>
+              <dd>{{ selected.collection }}</dd>
+            </div>
+            <div>
+              <dt>Código</dt>
+              <dd>{{ selected.sku }}</dd>
+            </div>
+          </dl>
           <p>{{ selected.description }}</p>
           <strong>{{ formatPrice(selected.price) }}</strong
           ><button
@@ -1175,6 +1191,47 @@ footer .brand {
   font-size: 52px;
   line-height: 0.92;
 }
+.product-specs {
+  width: 100%;
+  margin: 30px 0 0;
+  border-top: 1px solid #e4d9d3;
+  border-bottom: 1px solid #e4d9d3;
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+}
+.product-specs div {
+  padding: 14px 0;
+}
+.product-specs div:first-child {
+  grid-row: span 2;
+  padding-right: 18px;
+  border-right: 1px solid #e4d9d3;
+}
+.product-specs div:nth-child(2),
+.product-specs div:nth-child(3) {
+  padding-left: 18px;
+}
+.product-specs div:nth-child(2) {
+  border-bottom: 1px solid #e4d9d3;
+}
+.product-specs dt {
+  margin-bottom: 5px;
+  color: #9a7770;
+  font: 600 10px $font-principal;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.product-specs dd {
+  margin: 0;
+  color: #201817;
+  font: 600 14px $font-principal;
+  line-height: 1.25;
+}
+.product-specs div:first-child dd {
+  color: #a9473f;
+  font: 600 24px "DM Mono", monospace;
+  letter-spacing: -0.06em;
+}
 .product-modal > div > p:not(.eyebrow) {
   margin: 28px 0;
   color: #706663;
@@ -1494,6 +1551,9 @@ textarea {
   }
   .product-modal > div {
     padding: 38px 28px;
+  }
+  .product-specs {
+    margin-top: 24px;
   }
   .checkout-modal {
     padding: 42px 24px;
