@@ -30,8 +30,10 @@ export interface CheckoutPayload {
 }
 
 class StoreApi extends APIBase {
-  products(offerId: string) {
-    return this.get<{ products: Product[]; offer: { active: boolean; expiresAt: string } }>(`products?offerId=${encodeURIComponent(offerId)}`)
+  products(offerId: string, page = 1, limit = 5, category?: string) {
+    let url = `products?offerId=${encodeURIComponent(offerId)}&page=${page}&limit=${limit}`
+    if (category) url += `&category=${encodeURIComponent(category)}`
+    return this.get<{ products: Product[]; offer: { active: boolean; expiresAt: string }; pagination: { page: number; limit: number; total: number; totalPages: number; hasMore: boolean } }>(url)
   }
 
   createOrder(payload: CheckoutPayload) {

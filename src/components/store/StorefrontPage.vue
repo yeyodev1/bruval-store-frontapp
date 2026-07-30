@@ -44,6 +44,11 @@ const selected = ref<Product | null>(null);
 const loadedImages = ref(new Set<string>());
 const showFullCatalog = ref(false);
 const activeCategory = ref("Todos");
+const catalogPage = ref(1);
+const hasMore = ref(false);
+const isLoadingMore = ref(false);
+const catalogTotal = ref(0);
+const sentinel = ref<HTMLElement | null>(null);
 const isCheckoutOpen = ref(false);
 const isCheckoutWhatsAppOpen = ref(false);
 const isCheckoutWhatsAppConfirmationOpen = ref(false);
@@ -68,7 +73,7 @@ const deliveryFee = computed(() => (cart.value.length ? 4.5 : 0));
 const total = computed(() => subtotal.value + deliveryFee.value);
 const formatPrice = (value: number) => `$${value.toFixed(2)}`;
 const categories = computed(() => ["Todos", ...Array.from(new Set(products.value.flatMap((product) => product.categories || []))).sort((a, b) => a.localeCompare(b, "es"))]);
-const homeProducts = computed(() => products.value.filter((product) => ["Rosas preservadas", "Girasoles preservados", "Árbol de Amor", "Love Collection"].includes(product.collection)).slice(0, 6));
+const homeProducts = computed(() => products.value.slice(0, 5));
 const displayedProducts = computed(() => showFullCatalog.value ? activeCategory.value === "Todos" ? products.value : products.value.filter((product) => product.categories?.includes(activeCategory.value)) : homeProducts.value);
 
 function markImageLoaded(src: string) {
@@ -123,13 +128,31 @@ const availableDeliverySlots = computed(() => {
 });
 
 async function refreshCatalog() {
-  const { data } = await storeApi.products(offerId);
+  const { data } = await storeApi.products(offerId, 1, 5);
   products.value = data.products;
   offer.value = data.offer;
+  catalogPage.value = 1;
+  hasMore.value = data.pagination?.hasMore ?? false;
+  catalogTotal.value = data.pagination?.total ?? 0;
   cart.value = cart.value.map((item) => {
     const product = data.products.find((entry) => entry._id === item._id);
     return product ? { ...product, quantity: item.quantity } : item;
   });
+}
+
+async function loadMore() {
+  if (isLoadingMore.value || !hasMore.value || !showFullCatalog.value) return;
+  isLoadingMore.value = true;
+  try {
+    const nextPage = catalogPage.value + 1;
+    const category = activeCategory.value !== "Todos" ? activeCategory.value : undefined;
+    const { data } = await storeApi.products(offerId, nextPage, 5, category);
+    products.value = [...products.value, ...data.products];
+    catalogPage.value = nextPage;
+    hasMore.value = data.pagination?.hasMore ?? false;
+  } finally {
+    isLoadingMore.value = false;
+  }
 }
 
 function addToCart(product: Product) {
@@ -264,6 +287,8 @@ async function renderPayphone() {
   }
 }
 
+let observer: IntersectionObserver | null = null;
+
 onMounted(async () => {
   try {
     await refreshCatalog();
@@ -273,10 +298,18 @@ onMounted(async () => {
   } finally {
     isLoading.value = false;
   }
+  observer = new IntersectionObserver((entries) => {
+    if (entries[0]?.isIntersecting) void loadMore();
+  }, { rootMargin: "300px" });
+  await nextTick();
+  if (sentinel.value) observer.observe(sentinel.value);
   countdownTimer = setInterval(() => (now.value = Date.now()), 1000);
 });
 
-onUnmounted(() => clearInterval(countdownTimer));
+onUnmounted(() => {
+  clearInterval(countdownTimer);
+  observer?.disconnect();
+});
 
 watch(cart, (value) => localStorage.setItem("bruval-cart", JSON.stringify(value)), { deep: true });
 watch(checkout, (value) => localStorage.setItem("bruval-checkout", JSON.stringify(value)), { deep: true });
@@ -286,6 +319,20 @@ watch(isOfferActive, (active, previous) => {
 });
 watch(availableDeliverySlots, (slots) => {
   if (!slots.includes(checkout.value.timeSlot)) checkout.value.timeSlot = slots[0] || "";
+});
+watch(activeCategory, async () => {
+  if (!showFullCatalog.value) return;
+  isLoadingMore.value = true;
+  try {
+    const category = activeCategory.value !== "Todos" ? activeCategory.value : undefined;
+    const { data } = await storeApi.products(offerId, 1, 5, category);
+    products.value = data.products;
+    catalogPage.value = 1;
+    hasMore.value = data.pagination?.hasMore ?? false;
+    catalogTotal.value = data.pagination?.total ?? 0;
+  } finally {
+    isLoadingMore.value = false;
+  }
 });
 </script>
 
@@ -336,13 +383,18 @@ watch(availableDeliverySlots, (slots) => {
           <h2>Detalles que<br />perduran.</h2>
         </div>
         <p>
-          Seis creaciones preservadas para celebrar, agradecer y acompañar los
+          Nuestros arreglos preservados para celebrar, agradecer y acompañar los
           momentos que importan.
         </p>
       </div>
       <p v-if="errorMessage && !isCheckoutOpen" class="error">
         {{ errorMessage }}
       </p>
+      <div v-if="showFullCatalog" class="featured-label">
+        <span>⭐ Primero los destacados</span>
+        <span>De la temporada</span>
+        <span>Los mejores arreglos</span>
+      </div>
       <div class="product-list">
         <template v-if="isLoading"
           ><article
@@ -387,6 +439,9 @@ watch(availableDeliverySlots, (slots) => {
             </div>
           </div>
         </article>
+        <div ref="sentinel" v-show="showFullCatalog && hasMore" class="catalog-sentinel">
+          <span v-if="isLoadingMore">Cargando más arreglos...</span>
+        </div>
       </div>
       <div class="catalog-toggle">
         <button v-if="!showFullCatalog" type="button" @click="showFullCatalog = true">Ver todos los productos <span>↓</span></button>
@@ -929,7 +984,7 @@ h1 i {
   flex-wrap: wrap;
   gap: 48px 2%;
 }
-.catalog-toggle { display:flex; flex-direction:column; align-items:center; gap:24px; margin-top:58px; } .catalog-toggle > button { border:1px solid #211817; padding:14px 18px; color:#211817; background:transparent; font:600 11px $font-principal; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; transition:.2s; } .catalog-toggle > button:hover { color:#fffaf6; background:#211817; } .category-filters { display:flex; max-width:100%; gap:8px; overflow-x:auto; padding-bottom:4px; } .category-filters button { flex:0 0 auto; border:1px solid #d9c8c0; padding:9px 13px; color:#706663; background:transparent; font:600 10px $font-principal; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; } .category-filters button.active { color:#fffaf6; border-color:#a9473f; background:#a9473f; }
+.catalog-toggle { display:flex; flex-direction:column; align-items:center; gap:24px; margin-top:58px; } .catalog-toggle > button { border:1px solid #211817; padding:14px 18px; color:#211817; background:transparent; font:600 11px $font-principal; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; transition:.2s; } .catalog-toggle > button:hover { color:#fffaf6; background:#211817; } .category-filters { display:flex; max-width:100%; gap:8px; overflow-x:auto; padding-bottom:4px; } .category-filters button { flex:0 0 auto; border:1px solid #d9c8c0; padding:9px 13px; color:#706663; background:transparent; font:600 10px $font-principal; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; } .category-filters button.active { color:#fffaf6; border-color:#a9473f; background:#a9473f; } .featured-label { display:flex; gap:10px; margin-bottom:38px; flex-wrap:wrap; } .featured-label span { border:1px solid #d4a69e; padding:7px 11px; color:#9a4f58; background:rgba(154,79,88,0.06); font:600 9px $font-principal; letter-spacing:.08em; text-transform:uppercase; } .catalog-sentinel { width:100%; height:60px; display:flex; align-items:center; justify-content:center; color:#706663; font-size:11px; letter-spacing:.06em; text-transform:uppercase; }
 .product-card {
   width: calc(25% - 1.5%);
   min-width: 210px;
