@@ -15,11 +15,15 @@ export interface AdminProduct {
   _id: string
   name: string
   sku: string
+  collection: string
+  categories: string[]
+  palette: string
   description: string
   dimensions: string
   image: string
   price: number
   available: boolean
+  featured: boolean
 }
 
 class AdminApi extends APIBase {
@@ -37,6 +41,10 @@ class AdminApi extends APIBase {
 
   products() {
     return this.get<AdminProduct[]>('admin/products')
+  }
+
+  createProduct(payload: Omit<AdminProduct, '_id'>) {
+    return this.post<AdminProduct>('admin/products', payload)
   }
 
   updateProduct(id: string, payload: Omit<AdminProduct, '_id'>) {
