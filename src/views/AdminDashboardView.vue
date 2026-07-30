@@ -4,11 +4,9 @@ import { useRouter } from 'vue-router'
 import { adminApi, type AdminOrder, type AdminProduct } from '@/services/adminApi'
 
 const router = useRouter()
-const error = ref('')
 const formatPrice = (value: number) => `$${value.toFixed(2)}`
-const formatDate = (value: string) => new Intl.DateTimeFormat('es-EC', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 const statusLabel = (status: string) => ({ awaiting_payment: 'Pendiente', paid: 'Pagado', payment_failed: 'Fallido' }[status] || '—')
-const statusClass = (status: string) => ({ awaiting_payment: 'tag-warn', paid: 'tag-ok', payment_failed: 'tag-err' }[status] || '')
+const statusClass = (status: string) => ({ awaiting_payment: 'warn', paid: 'ok', payment_failed: 'err' }[status] || '')
 
 function logout() {
   localStorage.removeItem('access_token'); localStorage.removeItem('admin_name')
@@ -31,12 +29,12 @@ const filteredOrders = computed(() => {
 
 const paidOrders = computed(() => orders.value.filter((o) => o.status === 'paid'))
 const salesTotal = computed(() => paidOrders.value.reduce((t, o) => t + o.total, 0))
+const awaitingOrders = computed(() => orders.value.filter((o) => o.status === 'awaiting_payment'))
 
 async function loadOrders() {
-  isLoadingOrders.value = true; error.value = ''
+  isLoadingOrders.value = true
   try { const { data } = await adminApi.orders(); orders.value = data }
-  catch (reason: any) { error.value = reason.message || 'No pudimos cargar las ventas.' }
-  finally { isLoadingOrders.value = false }
+  catch {} finally { isLoadingOrders.value = false }
 }
 
 function whatsappLink(phone: string, orderNumber: string) {
@@ -51,11 +49,6 @@ const isSavingProduct = ref(false)
 const productMessage = ref('')
 const isNewProduct = ref(false)
 const isLoadingProducts = ref(true)
-
-const emptyProduct: Omit<AdminProduct, '_id'> = {
-  name: '', sku: '', collection: '', categories: [], palette: '',
-  description: '', dimensions: '', image: '', price: 0, available: true, featured: false,
-}
 
 const filteredProducts = computed(() => {
   const term = productSearch.value.trim().toLowerCase()
@@ -78,15 +71,14 @@ function selectProduct(product: AdminProduct) {
 }
 
 function newProduct() {
-  selectedProduct.value = { _id: '', ...emptyProduct, categories: [] }
+  selectedProduct.value = { _id: '', name: '', sku: '', collection: '', categories: [], palette: '', description: '', dimensions: '', image: '', price: 0, available: true, featured: false }
   isNewProduct.value = true; productMessage.value = ''
 }
 
 async function loadProducts() {
   isLoadingProducts.value = true
   try { const { data } = await adminApi.products(); products.value = data }
-  catch (reason: any) { productMessage.value = reason.message || 'No pudimos cargar el catálogo.' }
-  finally { isLoadingProducts.value = false }
+  catch {} finally { isLoadingProducts.value = false }
 }
 
 async function saveProduct() {
@@ -99,215 +91,604 @@ async function saveProduct() {
       products.value.unshift(data)
       selectedProduct.value = { ...data, categories: [...(data.categories || [])] }
       isNewProduct.value = false
-      productMessage.value = 'Producto creado correctamente.'
+      productMessage.value = 'Producto creado ✓'
     } else {
       const { data } = await adminApi.updateProduct(_id, payload)
       products.value = products.value.map((p) => p._id === data._id ? data : p)
       selectedProduct.value = { ...data, categories: [...(data.categories || [])] }
-      productMessage.value = 'Producto guardado.'
+      productMessage.value = 'Guardado ✓'
     }
   } catch (reason: any) {
-    productMessage.value = reason.message || 'No pudimos guardar el producto.'
-  } finally {
-    isSavingProduct.value = false
-  }
+    productMessage.value = reason.message || 'Error al guardar'
+  } finally { isSavingProduct.value = false }
 }
 
 onMounted(async () => { await Promise.all([loadOrders(), loadProducts()]) })
 </script>
 
 <template>
-  <main class="admin">
-    <header>
+  <div class="shell">
+    <header class="topbar">
       <a href="/" class="brand">bruval<span>.</span></a>
-      <nav><button type="button" @click="logout">Salir</button></nav>
+      <nav>
+        <span class="admin-label">Admin</span>
+        <button type="button" @click="logout">Cerrar sesión</button>
+      </nav>
     </header>
 
-    <section class="intro">
-      <p class="eyebrow">Administración · Guayaquil</p>
-      <h1>Todo lo que<br><i>está floreciendo.</i></h1>
-      <button type="button" @click="loadOrders">Actualizar ventas ↻</button>
-    </section>
-
-    <section class="metrics">
-      <div><span>Ventas confirmadas</span><strong>{{ paidOrders.length }}</strong></div>
-      <div><span>Total cobrado</span><strong>{{ formatPrice(salesTotal) }}</strong></div>
-      <div><span>Por coordinar</span><strong>{{ orders.filter((o) => o.status === 'awaiting_payment').length }}</strong></div>
-      <div><span>Productos</span><strong>{{ products.length }}</strong></div>
-    </section>
-
-    <p v-if="error" class="error">{{ error }}</p>
-
-    <section class="workspace">
-      <!-- ═══════ ORDERS PANEL ═══════ -->
-      <aside class="panel orders-panel">
-        <div class="panel-head">
-          <h2>Órdenes</h2>
-          <span>{{ orders.length }}</span>
+    <main class="dash">
+      <div class="dash-head">
+        <div>
+          <p class="overline">Panel de administración · Guayaquil</p>
+          <h1>Catálogo y<br><i>ventas.</i></h1>
         </div>
-        <div class="search-box">
-          <input v-model.trim="orderSearch" type="search" placeholder="Buscar por número, nombre, correo o teléfono">
-        </div>
-        <div v-if="isLoadingOrders" class="loading">Cargando órdenes...</div>
-        <template v-else>
-          <button v-for="order in filteredOrders" :key="order._id" class="order-row" :class="{ active: selectedOrder?._id === order._id }" type="button" @click="selectedOrder = order; selectedProduct = null">
-            <span class="order-main">
-              <b>{{ order.orderNumber }}</b>
-              <small>{{ order.customer.name }} · {{ formatDate(order.createdAt) }}</small>
-            </span>
-            <span class="order-side">
-              <em :class="statusClass(order.status)">{{ statusLabel(order.status) }}</em>
-              <strong>{{ formatPrice(order.total) }}</strong>
-            </span>
-          </button>
-          <p v-if="!filteredOrders.length" class="empty-note">Sin resultados</p>
-        </template>
+        <button class="refresh-btn" type="button" @click="loadOrders">Actualizar ↻</button>
+      </div>
 
-        <!-- Order detail -->
-        <section v-if="selectedOrder" class="order-detail">
-          <div class="detail-head">
-            <p class="eyebrow">Detalle de pedido</p>
-            <h3>{{ selectedOrder.orderNumber }}</h3>
-            <em :class="statusClass(selectedOrder.status)">{{ statusLabel(selectedOrder.status) }}</em>
-          </div>
-          <div class="detail-block"><strong>Cliente</strong><p>{{ selectedOrder.customer.name }} · {{ selectedOrder.customer.email }} · {{ selectedOrder.customer.phone }}</p></div>
-          <div class="detail-block"><strong>Entrega</strong><p>Para {{ selectedOrder.delivery.recipient }} · {{ selectedOrder.delivery.date }}, {{ selectedOrder.delivery.timeSlot }}</p><p>{{ selectedOrder.delivery.address }}</p><a :href="selectedOrder.delivery.mapUrl" target="_blank" rel="noopener">Ver ubicación ↗</a></div>
-          <div v-if="selectedOrder.delivery.messageCard" class="detail-block"><strong>Tarjeta</strong><p class="message-card">"{{ selectedOrder.delivery.messageCard }}"</p></div>
-          <div class="detail-block"><strong>Items</strong><div v-for="item in selectedOrder.items" :key="item.name" class="item"><span>{{ item.quantity }} x {{ item.name }}</span><span>{{ formatPrice(item.price * item.quantity) }}</span></div></div>
-          <div class="detail-total"><span>Total</span><strong>{{ formatPrice(selectedOrder.total) }}</strong></div>
-          <a class="whatsapp-link" :href="whatsappLink(selectedOrder.customer.phone, selectedOrder.orderNumber)" target="_blank" rel="noopener">Contactar por WhatsApp ↗</a>
-        </section>
-      </aside>
+      <div class="cards-row">
+        <div class="stat"><span>Ventas</span><strong>{{ paidOrders.length }}</strong></div>
+        <div class="stat"><span>Total cobrado</span><strong>{{ formatPrice(salesTotal) }}</strong></div>
+        <div class="stat"><span>Pendientes</span><strong>{{ awaitingOrders.length }}</strong></div>
+        <div class="stat"><span>Productos</span><strong>{{ products.length }}</strong></div>
+      </div>
 
-      <!-- ═══════ PRODUCTS PANEL ═══════ -->
-      <aside class="panel products-panel">
-        <div class="panel-head">
-          <h2>Productos</h2>
-          <span>{{ products.length }}</span>
-        </div>
-        <div class="search-box">
-          <input v-model.trim="productSearch" type="search" placeholder="Buscar por nombre o SKU">
-          <button class="create-btn" type="button" @click="newProduct">+ Nuevo</button>
-        </div>
-        <div v-if="isLoadingProducts" class="loading">Cargando productos...</div>
-        <div v-else class="product-list">
-          <button v-for="product in filteredProducts" :key="product._id" class="product-row" :class="{ active: selectedProduct?._id === product._id }" type="button" @click="selectProduct(product)">
-            <img :src="product.image" :alt="product.name">
-            <span><b>{{ product.name }}</b><small>{{ product.sku }} · {{ formatPrice(product.price) }}</small></span>
-          </button>
-          <p v-if="!filteredProducts.length" class="empty-note">Sin resultados</p>
-        </div>
-
-        <!-- Product editor -->
-        <section v-if="selectedProduct" class="editor">
-          <div class="detail-head">
-            <p class="eyebrow">{{ isNewProduct ? 'Nuevo producto' : 'Editar producto' }}</p>
-            <h3>{{ selectedProduct.name || 'Sin nombre' }}</h3>
-            <div class="editor-toggles">
-              <label><input v-model="selectedProduct.available" type="checkbox"> Disponible</label>
-              <label><input v-model="selectedProduct.featured" type="checkbox"> Destacado</label>
+      <div class="panels">
+        <!-- ═══ ORDERS ═══ -->
+        <section class="card">
+          <div class="card-header">
+            <h2>Órdenes</h2>
+            <div class="card-tools">
+              <input v-model.trim="orderSearch" type="search" placeholder="Buscar orden...">
             </div>
           </div>
-          <div v-if="selectedProduct.image" class="image-preview"><img :src="selectedProduct.image" :alt="selectedProduct.name"></div>
-          <form @submit.prevent="saveProduct">
-            <div class="form-row">
-              <label>Nombre<input v-model.trim="selectedProduct.name" required placeholder="Girasol Preservado"></label>
-              <label>SKU<input v-model.trim="selectedProduct.sku" required placeholder="GP001"></label>
+
+          <div v-if="isLoadingOrders" class="status-line">Cargando...</div>
+          <template v-else>
+            <div class="list">
+              <button v-for="order in filteredOrders" :key="order._id" class="row" :class="{ on: selectedOrder?._id === order._id }" type="button" @click="selectedOrder = order; selectedProduct = null">
+                <div class="row-col">
+                  <span class="code">{{ order.orderNumber }}</span>
+                  <span class="meta">{{ order.customer.name }}</span>
+                </div>
+                <div class="row-col right">
+                  <span :class="['badge', statusClass(order.status)]">{{ statusLabel(order.status) }}</span>
+                  <span class="amount">{{ formatPrice(order.total) }}</span>
+                </div>
+              </button>
+              <p v-if="!filteredOrders.length" class="empty-state">Sin resultados</p>
             </div>
-            <div class="form-row">
-              <label>Colección<input v-model.trim="selectedProduct.collection" required placeholder="Girasoles preservados"></label>
-              <label>Paleta<input v-model.trim="selectedProduct.palette" required placeholder="Amarillo mostaza"></label>
+          </template>
+
+          <div v-if="selectedOrder" class="detail">
+            <div class="detail-top">
+              <div>
+                <p class="detail-label">Pedido</p>
+                <h3>{{ selectedOrder.orderNumber }}</h3>
+              </div>
+              <span :class="['badge', statusClass(selectedOrder.status)]">{{ statusLabel(selectedOrder.status) }}</span>
             </div>
-            <div class="form-row">
-              <label>Medidas<input v-model.trim="selectedProduct.dimensions" required placeholder="18 x 27 cm"></label>
-              <label>Precio (USD)<input v-model.number="selectedProduct.price" required min="0" step="0.01" type="number"></label>
+
+            <div class="detail-grid">
+              <div>
+                <p class="detail-label">Cliente</p>
+                <p class="detail-val">{{ selectedOrder.customer.name }}</p>
+                <p class="detail-sub">{{ selectedOrder.customer.email }} · {{ selectedOrder.customer.phone }}</p>
+              </div>
+              <div>
+                <p class="detail-label">Entrega</p>
+                <p class="detail-val">Para {{ selectedOrder.delivery.recipient }}</p>
+                <p class="detail-sub">{{ selectedOrder.delivery.date }} · {{ selectedOrder.delivery.timeSlot }}</p>
+                <p class="detail-sub">{{ selectedOrder.delivery.address }}</p>
+                <a class="map-link" :href="selectedOrder.delivery.mapUrl" target="_blank">Mapa ↗</a>
+              </div>
             </div>
-            <label class="full">Categorías<small>Separadas por coma</small><input :value="categoriesText(selectedProduct)" @input="setCategoriesText(($event.target as HTMLInputElement).value)" placeholder="Rosas, Ramos, Rojas"></label>
-            <label class="full">Imagen URL<input v-model.trim="selectedProduct.image" required type="url" placeholder="https://res.cloudinary.com/..."></label>
-            <label class="full">Descripción<textarea v-model.trim="selectedProduct.description" required rows="3" placeholder="Describe el arreglo..."></textarea></label>
-            <p v-if="productMessage" class="form-message">{{ productMessage }}</p>
-            <button :disabled="isSavingProduct" type="submit">{{ isSavingProduct ? 'Guardando...' : (isNewProduct ? 'Crear producto →' : 'Guardar cambios →') }}</button>
-            <button v-if="isNewProduct" class="cancel-btn" type="button" @click="selectedProduct = null; isNewProduct = false">Cancelar</button>
-          </form>
+
+            <div v-if="selectedOrder.delivery.messageCard" class="detail-card">
+              <p class="detail-label">Tarjeta</p>
+              <p class="card-msg">“{{ selectedOrder.delivery.messageCard }}”</p>
+            </div>
+
+            <div class="detail-items">
+              <p class="detail-label">Items</p>
+              <div v-for="item in selectedOrder.items" :key="item.name" class="item-line">
+                <span>{{ item.quantity }} × {{ item.name }}</span>
+                <span>{{ formatPrice(item.price * item.quantity) }}</span>
+              </div>
+              <div class="item-line total-line">
+                <span>Total</span><strong>{{ formatPrice(selectedOrder.total) }}</strong>
+              </div>
+            </div>
+
+            <a class="wa-btn" :href="whatsappLink(selectedOrder.customer.phone, selectedOrder.orderNumber)" target="_blank">WhatsApp ↗</a>
+          </div>
         </section>
-      </aside>
-    </section>
-  </main>
+
+        <!-- ═══ PRODUCTS ═══ -->
+        <section class="card">
+          <div class="card-header">
+            <h2>Productos</h2>
+            <div class="card-tools">
+              <input v-model.trim="productSearch" type="search" placeholder="Buscar producto...">
+              <button class="add-btn" type="button" @click="newProduct">+ Nuevo</button>
+            </div>
+          </div>
+
+          <div v-if="isLoadingProducts" class="status-line">Cargando...</div>
+          <div v-else class="list">
+            <button v-for="product in filteredProducts" :key="product._id" class="row" :class="{ on: selectedProduct?._id === product._id }" type="button" @click="selectProduct(product)">
+              <img v-if="product.image" :src="product.image" :alt="product.name">
+              <div class="row-col full-w">
+                <span class="name">{{ product.name }}</span>
+                <span class="meta">{{ product.sku }} · {{ formatPrice(product.price) }}</span>
+              </div>
+            </button>
+            <p v-if="!filteredProducts.length" class="empty-state">Sin resultados</p>
+          </div>
+
+          <div v-if="selectedProduct" class="detail">
+            <div class="detail-top">
+              <div>
+                <p class="detail-label">{{ isNewProduct ? 'Nuevo' : 'Editar' }}</p>
+                <h3>{{ selectedProduct.name || 'Sin nombre' }}</h3>
+              </div>
+              <div class="toggles">
+                <label class="toggle"><input v-model="selectedProduct.available" type="checkbox"> Activo</label>
+                <label class="toggle"><input v-model="selectedProduct.featured" type="checkbox"> Destacado</label>
+              </div>
+            </div>
+            <div v-if="selectedProduct.image" class="prod-img"><img :src="selectedProduct.image" :alt="selectedProduct.name"></div>
+
+            <form @submit.prevent="saveProduct" class="editor-form">
+              <div class="f-row">
+                <label>Nombre<input v-model.trim="selectedProduct.name" required></label>
+                <label>SKU<input v-model.trim="selectedProduct.sku" required></label>
+              </div>
+              <div class="f-row">
+                <label>Colección<input v-model.trim="selectedProduct.collection" placeholder="Girasoles preservados"></label>
+                <label>Paleta<input v-model.trim="selectedProduct.palette" placeholder="Amarillo mostaza"></label>
+              </div>
+              <div class="f-row">
+                <label>Medidas<input v-model.trim="selectedProduct.dimensions" placeholder="18 × 27 cm"></label>
+                <label>Precio USD<input v-model.number="selectedProduct.price" min="0" step="0.01" type="number"></label>
+              </div>
+              <label>Categorías <small>(coma separada)</small><input :value="categoriesText(selectedProduct)" @input="setCategoriesText(($event.target as HTMLInputElement).value)"></label>
+              <label>Imagen URL<input v-model.trim="selectedProduct.image" type="url" placeholder="https://res.cloudinary.com/..."></label>
+              <label>Descripción<textarea v-model.trim="selectedProduct.description" rows="3"></textarea></label>
+              <p v-if="productMessage" class="form-feedback">{{ productMessage }}</p>
+              <div class="f-actions">
+                <button class="save-btn" :disabled="isSavingProduct" type="submit">{{ isSavingProduct ? 'Guardando…' : (isNewProduct ? 'Crear producto' : 'Guardar cambios') }}</button>
+                <button v-if="isNewProduct" class="ghost-btn" type="button" @click="selectedProduct = null; isNewProduct = false">Cancelar</button>
+              </div>
+            </form>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
 </template>
 
 <style lang="scss" scoped>
-.admin { min-height:100vh; padding:26px 5vw 80px; color:#211817; background:#fffaf6; }
-header { display:flex; align-items:center; justify-content:space-between; }
-.brand { color:inherit; text-decoration:none; font:600 31px/1 $font-secondary; letter-spacing:-2px; }
-.brand span,.eyebrow { color:#9a4f58; }
-nav { display:flex; gap:18px; }
-nav button { border:0; padding:0; color:#211817; background:transparent; font:600 11px $font-principal; cursor:pointer; }
-.intro { margin:80px 0 35px; }
-.eyebrow { margin:0; font:500 10px $font-principal; letter-spacing:1.4px; text-transform:uppercase; }
-.intro h1 { margin:12px 0 18px; font:500 clamp(50px,7vw,100px)/.78 $font-secondary; letter-spacing:-.07em; }
-.intro h1 i { padding-left:9vw; }
-.intro button { border:0; padding-bottom:6px; border-bottom:1px solid #211817; background:transparent; font:600 11px $font-principal; cursor:pointer; }
-.metrics { display:flex; gap:1px; background:#ddcec6; margin-bottom:40px; }
-.metrics div { flex:1; min-height:100px; padding:18px 20px; display:flex; flex-direction:column; justify-content:space-between; background:#efe2db; }
-.metrics span { color:#706663; font-size:9px; text-transform:uppercase; letter-spacing:1px; }
-.metrics strong { font:500 32px $font-secondary; }
-.error { color:#b23d45; font-size:13px; margin-bottom:20px; }
-.workspace { display:grid; grid-template-columns:1fr 1fr; gap:32px; align-items:start; }
-.panel { border-top:1px solid #d9c8c0; padding-top:14px; }
-.panel-head { display:flex; align-items:baseline; gap:10px; margin-bottom:14px; }
-.panel-head h2 { margin:0; font:500 30px $font-secondary; letter-spacing:-.05em; }
-.panel-head span { color:#706663; font-size:10px; text-transform:uppercase; letter-spacing:1px; }
-.search-box { display:flex; gap:8px; margin-bottom:10px; }
-.search-box input { flex:1; box-sizing:border-box; border:1px solid #d9c8c0; padding:10px; color:#211817; background:#fffdfb; font:14px $font-principal; }
-.create-btn { flex:0 0 auto; border:1px solid #9a4f58; padding:0 12px; color:#9a4f58; background:transparent; font:600 9px $font-principal; letter-spacing:.06em; text-transform:uppercase; cursor:pointer; white-space:nowrap; }
-.create-btn:hover { color:#fffaf6; background:#9a4f58; }
-.loading { color:#706663; font-size:12px; padding:20px 0; }
-.empty-note { color:#706663; font-size:12px; padding:14px 0; }
-.order-row,.product-row { width:100%; display:flex; align-items:center; gap:10px; padding:10px 0; border:0; border-bottom:1px solid #eadfd9; background:transparent; text-align:left; cursor:pointer; }
-.order-row.active,.product-row.active { background:#f0e1da; }
-.order-row .order-main,.order-row .order-side { display:flex; flex-direction:column; gap:3px; }
-.order-row .order-side { align-items:flex-end; margin-left:auto; }
-.order-row b { font:600 11px 'DM Mono',monospace; }
-.order-row small,.order-row strong { font-size:11px; }
-.order-row strong { font-family:'DM Mono',monospace; }
-.order-row em { font-size:9px; font-style:normal; text-transform:uppercase; letter-spacing:.08em; padding:2px 6px; }
-.tag-ok { color:#3d6e47; background:#e2f0e5; }
-.tag-warn { color:#a16829; background:#f7edd6; }
-.tag-err { color:#b23d45; background:#f3ddde; }
-.product-row img { width:42px; height:42px; object-fit:cover; flex:none; }
-.product-row span { display:flex; flex-direction:column; gap:3px; }
-.product-row b { font:600 12px $font-principal; }
-.product-row small { color:#706663; font-size:10px; }
-.product-list { max-height:420px; overflow-y:auto; }
-.product-list::-webkit-scrollbar { width:4px; }
-.product-list::-webkit-scrollbar-thumb { background:#d9c8c0; }
-.order-detail,.editor { margin-top:16px; padding:16px; background:#f7f0eb; }
-.detail-head { margin-bottom:12px; }
-.detail-head h3 { margin:4px 0 8px; font:500 24px $font-secondary; }
-.editor-toggles { display:flex; gap:14px; margin-bottom:8px; }
-.editor-toggles label { display:flex; align-items:center; gap:5px; color:#706663; font:600 9px $font-principal; letter-spacing:.05em; text-transform:uppercase; cursor:pointer; }
-.editor-toggles input { width:auto; accent-color:#9a4f58; }
-.image-preview { max-height:200px; overflow:hidden; margin-bottom:12px; }
-.image-preview img { width:100%; height:auto; max-height:200px; object-fit:cover; }
-.detail-block { margin-bottom:10px; }
-.detail-block strong { display:block; font:600 9px $font-principal; letter-spacing:.1em; text-transform:uppercase; color:#9a4f58; margin-bottom:4px; }
-.detail-block p { margin:3px 0; color:#625551; font-size:12px; line-height:1.4; }
-.detail-block a { color:#9a4f58; font-size:11px; font-weight:600; }
-.message-card { font-size:14px !important; font-family:$font-secondary; }
-.item { display:flex; justify-content:space-between; font-size:12px; padding:4px 0; }
-.detail-total { display:flex; justify-content:space-between; padding:10px 0; border-top:1px solid #d9c8c0; margin-top:10px; font:500 18px $font-secondary; }
-.whatsapp-link { display:inline-block; margin-top:10px; border:0; padding:10px 14px; color:#fffaf6; background:#427a55; text-decoration:none; font:600 11px $font-principal; }
-form { display:flex; flex-direction:column; gap:10px; }
-.form-row { display:flex; gap:10px; }
-.form-row label { flex:1; }
-label { display:flex; flex-direction:column; gap:4px; color:#706663; font-size:9px; letter-spacing:.5px; text-transform:uppercase; }
-label small { color:#9a4f58; font-size:8px; letter-spacing:.2px; text-transform:none; }
-.full { width:100%; }
-input,textarea,select { box-sizing:border-box; border:1px solid #d9c8c0; padding:9px; color:#211817; background:#fffdfb; font:13px $font-principal; }
-textarea { resize:vertical; }
-.form-message { margin:0; padding:10px; color:#706663; background:#f0e1da; font-size:11px; }
-form > button[type=submit] { border:0; padding:14px; color:#fffaf6; background:#9a4f58; font:600 11px $font-principal; cursor:pointer; }
-form > button[type=submit]:disabled { opacity:.65; cursor:wait; }
-.cancel-btn { border:1px solid #706663; padding:12px; color:#706663; background:transparent; font:600 10px $font-principal; cursor:pointer; }
-@media (max-width:900px) { .workspace { grid-template-columns:1fr; } .metrics { flex-wrap:wrap; } .metrics div { min-width:45%; } }
+.shell {
+  min-height: 100vh;
+  background: #f5f0ec;
+  color: #211817;
+  font-family: $font-principal;
+}
+
+/* ── Top bar ── */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 5vw;
+  background: #fffaf6;
+  border-bottom: 1px solid #e4d7d0;
+}
+.brand {
+  color: inherit;
+  text-decoration: none;
+  font: 600 28px/1 $font-secondary;
+  letter-spacing: -2px;
+}
+.brand span { color: #9a4f58; }
+nav { display: flex; align-items: center; gap: 16px; }
+.admin-label {
+  font: 500 9px $font-principal;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: #9a4f58;
+  padding: 3px 8px;
+  border: 1px solid #ddc8c0;
+  border-radius: 4px;
+}
+nav button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #706663;
+  font: 600 11px $font-principal;
+  cursor: pointer;
+}
+nav button:hover { color: #211817; }
+
+/* ── Dashboard head ── */
+.dash {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 44px 5vw 80px;
+}
+.dash-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 32px;
+}
+.overline {
+  margin: 0;
+  font: 500 9px $font-principal;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: #9a4f58;
+}
+.dash-head h1 {
+  margin: 8px 0 0;
+  font: 500 clamp(36px, 5vw, 64px)/0.82 $font-secondary;
+  letter-spacing: -0.06em;
+}
+.dash-head h1 i { padding-left: 7vw; }
+.refresh-btn {
+  border: 0;
+  padding: 0 0 4px;
+  background: transparent;
+  color: #211817;
+  font: 600 10px $font-principal;
+  letter-spacing: 0.4px;
+  border-bottom: 1px solid #211817;
+  cursor: pointer;
+}
+
+/* ── Stats row ── */
+.cards-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: #ddcec6;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 36px;
+}
+.stat {
+  background: #fffaf6;
+  padding: 18px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.stat span {
+  font: 500 9px $font-principal;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #9c8c86;
+}
+.stat strong {
+  font: 500 32px $font-secondary;
+  letter-spacing: -0.04em;
+}
+
+/* ── Two-panel grid ── */
+.panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+  align-items: start;
+}
+.card {
+  background: #fffaf6;
+  border: 1px solid #e4d7d0;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #ede3dd;
+}
+.card-header h2 {
+  margin: 0;
+  font: 500 22px $font-secondary;
+  letter-spacing: -0.04em;
+}
+.card-tools {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.card-tools input {
+  width: 180px;
+  box-sizing: border-box;
+  border: 1px solid #d9cbc4;
+  border-radius: 6px;
+  padding: 7px 10px;
+  font: 13px $font-principal;
+  background: #fffdfb;
+  color: #211817;
+}
+.add-btn {
+  border: 1px solid #9a4f58;
+  border-radius: 6px;
+  padding: 7px 12px;
+  color: #9a4f58;
+  background: transparent;
+  font: 600 9px $font-principal;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.add-btn:hover {
+  color: #fffaf6;
+  background: #9a4f58;
+}
+
+/* ── Scrollable list ── */
+.list {
+  max-height: 380px;
+  overflow-y: auto;
+}
+.list::-webkit-scrollbar { width: 4px; }
+.list::-webkit-scrollbar-thumb { background: #d9c8c0; border-radius: 4px; }
+
+.row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  border: 0;
+  border-bottom: 1px solid #f0e7e2;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.row:hover { background: #f9f3ef; }
+.row.on { background: #f0e1da; }
+
+.row img {
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex: none;
+}
+.row-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.row-col.full-w { flex: 1; }
+.row-col.right {
+  margin-left: auto;
+  align-items: flex-end;
+}
+.code, .name {
+  font: 600 12px $font-principal;
+}
+.meta {
+  font-size: 10px;
+  color: #9c8c86;
+}
+.amount {
+  font: 11px 'DM Mono', monospace;
+}
+.badge {
+  display: inline-block;
+  font: 600 8px $font-principal;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+.badge.ok { color: #3d6e47; background: #e2f0e5; }
+.badge.warn { color: #a16829; background: #f7edd6; }
+.badge.err { color: #b23d45; background: #f3ddde; }
+.status-line, .empty-state {
+  padding: 28px 20px;
+  text-align: center;
+  color: #9c8c86;
+  font-size: 12px;
+}
+
+/* ── Detail section ── */
+.detail {
+  border-top: 1px solid #ede3dd;
+  padding: 20px;
+  background: #faf5f1;
+}
+.detail-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+.detail-label {
+  margin: 0 0 3px;
+  font: 600 8px $font-principal;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #9c8c86;
+}
+.detail-top h3 {
+  margin: 0;
+  font: 500 20px $font-secondary;
+}
+.toggles {
+  display: flex;
+  gap: 12px;
+}
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #706663;
+  font: 600 8px $font-principal;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.toggle input { accent-color: #9a4f58; }
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.detail-val {
+  margin: 0;
+  font: 600 13px $font-principal;
+}
+.detail-sub {
+  margin: 3px 0 0;
+  font-size: 11px;
+  color: #706663;
+  line-height: 1.4;
+}
+.map-link {
+  display: inline-block;
+  margin-top: 4px;
+  color: #9a4f58;
+  font: 600 10px $font-principal;
+  text-decoration: none;
+}
+.detail-card {
+  margin-bottom: 12px;
+  padding: 12px;
+  background: #f0e1da;
+  border-radius: 6px;
+}
+.card-msg {
+  margin: 4px 0 0;
+  font: 500 15px $font-secondary;
+  line-height: 1.3;
+}
+.detail-items { margin-bottom: 10px; }
+.item-line {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 0;
+  font-size: 12px;
+  border-bottom: 1px solid #ede3dd;
+}
+.total-line {
+  padding-top: 8px;
+  font: 500 16px $font-secondary;
+  border-top: 1px solid #d9c8c0;
+  border-bottom: 0;
+}
+.wa-btn {
+  display: inline-block;
+  border: 0;
+  border-radius: 6px;
+  padding: 9px 16px;
+  color: #fffaf6;
+  background: #427a55;
+  text-decoration: none;
+  font: 600 10px $font-principal;
+  letter-spacing: 0.04em;
+}
+
+/* ── Product image ── */
+.prod-img {
+  width: 100%;
+  max-height: 200px;
+  overflow: hidden;
+  border-radius: 6px;
+  margin-bottom: 14px;
+}
+.prod-img img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* ── Editor form ── */
+.editor-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.f-row {
+  display: flex;
+  gap: 10px;
+}
+.f-row label { flex: 1; }
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font: 600 9px $font-principal;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #706663;
+}
+label small {
+  color: #9a4f58;
+  font-size: 8px;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+.editor-form input, .editor-form textarea {
+  box-sizing: border-box;
+  border: 1px solid #d9c8c0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: 13px $font-principal;
+  color: #211817;
+  background: #fffdfb;
+}
+.editor-form textarea { resize: vertical; }
+.form-feedback {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #f0e1da;
+  color: #625551;
+  font-size: 11px;
+}
+.f-actions {
+  display: flex;
+  gap: 10px;
+}
+.save-btn {
+  flex: 1;
+  border: 0;
+  border-radius: 6px;
+  padding: 11px;
+  color: #fffaf6;
+  background: #9a4f58;
+  font: 600 11px $font-principal;
+  cursor: pointer;
+}
+.save-btn:disabled { opacity: 0.6; cursor: wait; }
+.ghost-btn {
+  border: 1px solid #706663;
+  border-radius: 6px;
+  padding: 11px 16px;
+  color: #706663;
+  background: transparent;
+  font: 600 10px $font-principal;
+  cursor: pointer;
+}
+
+/* ── Responsive ── */
+@media (max-width: 900px) {
+  .panels { grid-template-columns: 1fr; }
+  .cards-row { grid-template-columns: 1fr 1fr; }
+  .detail-grid { grid-template-columns: 1fr; }
+  .f-row { flex-direction: column; }
+}
 </style>
