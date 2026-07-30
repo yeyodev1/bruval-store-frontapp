@@ -289,6 +289,12 @@ async function renderPayphone() {
 
 let observer: IntersectionObserver | null = null;
 
+function setupObserver() {
+  observer = new IntersectionObserver((entries) => {
+    if (entries[0]?.isIntersecting) void loadMore();
+  }, { rootMargin: "300px" });
+}
+
 onMounted(async () => {
   try {
     await refreshCatalog();
@@ -298,12 +304,15 @@ onMounted(async () => {
   } finally {
     isLoading.value = false;
   }
-  observer = new IntersectionObserver((entries) => {
-    if (entries[0]?.isIntersecting) void loadMore();
-  }, { rootMargin: "300px" });
-  await nextTick();
-  if (sentinel.value) observer.observe(sentinel.value);
+  setupObserver();
   countdownTimer = setInterval(() => (now.value = Date.now()), 1000);
+});
+
+watch(sentinel, (el) => {
+  if (el) {
+    if (!observer) setupObserver();
+    observer?.observe(el);
+  }
 });
 
 onUnmounted(() => {
@@ -390,10 +399,10 @@ watch(activeCategory, async () => {
       <p v-if="errorMessage && !isCheckoutOpen" class="error">
         {{ errorMessage }}
       </p>
-      <div v-if="showFullCatalog" class="featured-label">
-        <span>⭐ Primero los destacados</span>
+      <div class="featured-label">
+        <span>Ordenados por calidad</span>
+        <span>Primero los destacados</span>
         <span>De la temporada</span>
-        <span>Los mejores arreglos</span>
       </div>
       <div class="product-list">
         <template v-if="isLoading"
@@ -439,7 +448,7 @@ watch(activeCategory, async () => {
             </div>
           </div>
         </article>
-        <div ref="sentinel" v-show="showFullCatalog && hasMore" class="catalog-sentinel">
+        <div ref="sentinel" v-if="showFullCatalog && hasMore" class="catalog-sentinel">
           <span v-if="isLoadingMore">Cargando más arreglos...</span>
         </div>
       </div>
