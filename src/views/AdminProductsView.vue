@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { adminApi, type AdminProduct } from '@/services/adminApi'
 
 const router = useRouter()
 const products = ref<AdminProduct[]>([])
 const search = ref('')
+const appliedSearch = ref('')
 const isLoading = ref(true)
 const error = ref('')
+let searchTimer: ReturnType<typeof setTimeout> | undefined
 const filteredProducts = computed(() => {
-  const term = search.value.trim().toLowerCase()
+  const term = appliedSearch.value.trim().toLowerCase()
   return term ? products.value.filter((product) => `${product.name} ${product.sku} ${product.collection}`.toLowerCase().includes(term)) : products.value
 })
 const formatPrice = (value: number) => `$${value.toFixed(2)}`
@@ -20,7 +22,13 @@ async function loadProducts() {
   finally { isLoading.value = false }
 }
 function logout() { localStorage.removeItem('access_token'); localStorage.removeItem('admin_name'); router.replace('/admin/login') }
+watch(search, (value) => {
+  clearTimeout(searchTimer)
+  if (!value) { appliedSearch.value = ''; return }
+  searchTimer = setTimeout(() => { appliedSearch.value = value }, 150)
+})
 onMounted(loadProducts)
+onBeforeUnmount(() => clearTimeout(searchTimer))
 </script>
 
 <template>
