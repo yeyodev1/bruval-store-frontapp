@@ -39,6 +39,12 @@ const routes: Array<RouteRecordRaw> = [
     meta: { title: 'Catálogo Bruval', requiresAuth: true, noindex: true },
   },
   {
+    path: '/admin/productos/:id',
+    name: 'AdminProductEdit',
+    component: () => import('../views/AdminProductEditView.vue'),
+    meta: { title: 'Editar producto | Bruval', requiresAuth: true, noindex: true },
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
     component: () => import('../views/NotFoundView.vue'),

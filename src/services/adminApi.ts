@@ -43,6 +43,10 @@ class AdminApi extends APIBase {
     return this.get<AdminProduct[]>('admin/products')
   }
 
+  uploadProductImage(image: string) {
+    return this.post<{ url: string }>('admin/products/image', { image })
+  }
+
   createProduct(payload: Omit<AdminProduct, '_id'>) {
     return this.post<AdminProduct>('admin/products', payload)
   }

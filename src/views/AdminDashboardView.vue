@@ -1,109 +1,65 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { adminApi, type AdminOrder, type AdminProduct } from '@/services/adminApi'
+import { adminApi, type AdminOrder } from '@/services/adminApi'
 
 const router = useRouter()
-const formatPrice = (value: number) => `$${value.toFixed(2)}`
-const statusLabel = (status: string) => ({ awaiting_payment: 'Pendiente', paid: 'Pagado', payment_failed: 'Fallido' }[status] || '—')
-const statusClass = (status: string) => ({ awaiting_payment: 'warn', paid: 'ok', payment_failed: 'err' }[status] || '')
-
-function logout() {
-  localStorage.removeItem('access_token'); localStorage.removeItem('admin_name')
-  router.replace('/admin/login')
-}
-
-// ── Orders ──
 const orders = ref<AdminOrder[]>([])
 const orderSearch = ref('')
+const orderView = ref<'all' | 'paid'>('all')
 const selectedOrder = ref<AdminOrder | null>(null)
 const isLoadingOrders = ref(true)
+const ordersError = ref('')
+
+const formatPrice = (value: number) => `$${value.toFixed(2)}`
+const statusLabel = (status: string) => ({ awaiting_payment: 'Pendiente', paid: 'Pagado', payment_failed: 'Fallido' }[status] || 'Sin estado')
+const statusClass = (status: string) => ({ awaiting_payment: 'warn', paid: 'ok', payment_failed: 'err' }[status] || '')
+const paidOrders = computed(() => orders.value.filter((order) => order.status === 'paid'))
+const awaitingOrders = computed(() => orders.value.filter((order) => order.status === 'awaiting_payment'))
+const salesTotal = computed(() => paidOrders.value.reduce((total, order) => total + order.total, 0))
 
 const filteredOrders = computed(() => {
   const term = orderSearch.value.trim().toLowerCase()
-  if (!term) return orders.value
-  return orders.value.filter((o) =>
-    `${o.orderNumber} ${o.customer.name} ${o.customer.email} ${o.customer.phone}`.toLowerCase().includes(term)
-  )
+  return orders.value.filter((order) => {
+    const matchesView = orderView.value === 'all' || order.status === 'paid'
+    const matchesSearch = !term || `${order.orderNumber} ${order.customer.name} ${order.customer.email} ${order.customer.phone}`.toLowerCase().includes(term)
+    return matchesView && matchesSearch
+  })
 })
-
-const paidOrders = computed(() => orders.value.filter((o) => o.status === 'paid'))
-const salesTotal = computed(() => paidOrders.value.reduce((t, o) => t + o.total, 0))
-const awaitingOrders = computed(() => orders.value.filter((o) => o.status === 'awaiting_payment'))
 
 async function loadOrders() {
   isLoadingOrders.value = true
-  try { const { data } = await adminApi.orders(); orders.value = data }
-  catch {} finally { isLoadingOrders.value = false }
+  ordersError.value = ''
+  try {
+    const { data } = await adminApi.orders()
+    orders.value = data
+  } catch (reason: any) {
+    ordersError.value = reason.message || 'No pudimos cargar las órdenes.'
+  } finally {
+    isLoadingOrders.value = false
+  }
+}
+
+function selectOrder(order: AdminOrder) {
+  selectedOrder.value = order
+}
+
+function changeOrderView(view: 'all' | 'paid') {
+  orderView.value = view
+  selectedOrder.value = null
+}
+
+function logout() {
+  localStorage.removeItem('access_token')
+  localStorage.removeItem('admin_name')
+  router.replace('/admin/login')
 }
 
 function whatsappLink(phone: string, orderNumber: string) {
   return `https://wa.me/${phone.replace(/\D/g, '')}?text=${encodeURIComponent(`Hola, te escribimos de Bruval sobre tu pedido ${orderNumber}.`)}`
 }
 
-// ── Products ──
-const products = ref<AdminProduct[]>([])
-const productSearch = ref('')
-const selectedProduct = ref<AdminProduct | null>(null)
-const isSavingProduct = ref(false)
-const productMessage = ref('')
-const isNewProduct = ref(false)
-const isLoadingProducts = ref(true)
-
-const filteredProducts = computed(() => {
-  const term = productSearch.value.trim().toLowerCase()
-  if (!term) return products.value
-  return products.value.filter((p) => `${p.name} ${p.sku}`.toLowerCase().includes(term))
-})
-
-function categoriesText(product: AdminProduct): string {
-  return Array.isArray(product.categories) ? product.categories.join(', ') : ''
-}
-function setCategoriesText(value: string) {
-  if (!selectedProduct.value) return
-  selectedProduct.value.categories = value.split(',').map((c) => c.trim()).filter(Boolean)
-}
-
-function selectProduct(product: AdminProduct) {
-  selectedProduct.value = { ...product, categories: [...(product.categories || [])] }
-  isNewProduct.value = false; productMessage.value = ''
-  selectedOrder.value = null
-}
-
-function newProduct() {
-  selectedProduct.value = { _id: '', name: '', sku: '', collection: '', categories: [], palette: '', description: '', dimensions: '', image: '', price: 0, available: true, featured: false }
-  isNewProduct.value = true; productMessage.value = ''
-}
-
-async function loadProducts() {
-  isLoadingProducts.value = true
-  try { const { data } = await adminApi.products(); products.value = data }
-  catch {} finally { isLoadingProducts.value = false }
-}
-
-async function saveProduct() {
-  if (!selectedProduct.value) return
-  isSavingProduct.value = true; productMessage.value = ''
-  try {
-    const { _id, ...payload } = selectedProduct.value
-    if (isNewProduct.value) {
-      const { data } = await adminApi.createProduct(payload)
-      products.value.unshift(data)
-      selectedProduct.value = { ...data, categories: [...(data.categories || [])] }
-      isNewProduct.value = false
-      productMessage.value = 'Producto creado ✓'
-    } else {
-      const { data } = await adminApi.updateProduct(_id, payload)
-      products.value = products.value.map((p) => p._id === data._id ? data : p)
-      selectedProduct.value = { ...data, categories: [...(data.categories || [])] }
-      productMessage.value = 'Guardado ✓'
-    }
-  } catch (reason: any) {
-    productMessage.value = reason.message || 'Error al guardar'
-  } finally { isSavingProduct.value = false }
-}
-
-onMounted(async () => { await Promise.all([loadOrders(), loadProducts()]) })
+onMounted(loadOrders)
 </script>
 
 <template>
@@ -112,583 +68,88 @@ onMounted(async () => { await Promise.all([loadOrders(), loadProducts()]) })
       <a href="/" class="brand">bruval<span>.</span></a>
       <nav>
         <span class="admin-label">Admin</span>
+        <RouterLink to="/admin">Órdenes</RouterLink>
+        <RouterLink to="/admin/productos">Productos</RouterLink>
         <button type="button" @click="logout">Cerrar sesión</button>
       </nav>
     </header>
 
     <main class="dash">
-      <div class="dash-head">
+      <section class="dash-head">
         <div>
           <p class="overline">Panel de administración · Guayaquil</p>
-          <h1>Catálogo y<br><i>ventas.</i></h1>
+          <h1>Órdenes y<br><i>ventas.</i></h1>
+          <p>Consulta las compras, confirma los pagos y revisa los datos de entrega de cada pedido.</p>
         </div>
-        <button class="refresh-btn" type="button" @click="loadOrders">Actualizar ↻</button>
-      </div>
+        <div class="head-actions">
+          <RouterLink class="products-link" to="/admin/productos">Gestionar productos</RouterLink>
+          <button class="refresh-btn" type="button" @click="loadOrders">Actualizar</button>
+        </div>
+      </section>
 
-      <div class="cards-row">
-        <div class="stat"><span>Ventas</span><strong>{{ paidOrders.length }}</strong></div>
+      <section class="cards-row" aria-label="Resumen de ventas">
+        <div class="stat"><span>Compras realizadas</span><strong>{{ orders.length }}</strong></div>
+        <div class="stat"><span>Pagos confirmados</span><strong>{{ paidOrders.length }}</strong></div>
         <div class="stat"><span>Total cobrado</span><strong>{{ formatPrice(salesTotal) }}</strong></div>
-        <div class="stat"><span>Pendientes</span><strong>{{ awaitingOrders.length }}</strong></div>
-        <div class="stat"><span>Productos</span><strong>{{ products.length }}</strong></div>
-      </div>
+        <div class="stat"><span>Por confirmar</span><strong>{{ awaitingOrders.length }}</strong></div>
+      </section>
 
-      <div class="panels">
-        <!-- ═══ ORDERS ═══ -->
-        <section class="card">
-          <div class="card-header">
+      <section class="orders-card">
+        <div class="card-header">
+          <div>
+            <p class="overline">Compras</p>
             <h2>Órdenes</h2>
-            <div class="card-tools">
-              <input v-model.trim="orderSearch" type="search" placeholder="Buscar orden...">
-            </div>
+          </div>
+          <input v-model.trim="orderSearch" type="search" placeholder="Buscar orden o cliente">
+        </div>
+
+        <div class="order-views" role="tablist" aria-label="Vista de compras">
+          <button :class="{ active: orderView === 'all' }" type="button" role="tab" :aria-selected="orderView === 'all'" @click="changeOrderView('all')">Todas <span>{{ orders.length }}</span></button>
+          <button :class="{ active: orderView === 'paid' }" type="button" role="tab" :aria-selected="orderView === 'paid'" @click="changeOrderView('paid')">Pagadas <span>{{ paidOrders.length }}</span></button>
+        </div>
+
+        <p v-if="isLoadingOrders" class="status-line">Cargando órdenes...</p>
+        <p v-else-if="ordersError" class="status-line error">{{ ordersError }}</p>
+        <div v-else class="orders-workspace">
+          <div class="orders-list">
+            <button v-for="order in filteredOrders" :key="order._id" class="order-row" :class="{ selected: selectedOrder?._id === order._id }" type="button" @click="selectOrder(order)">
+              <span class="order-main"><b>{{ order.orderNumber }}</b><small>{{ order.customer.name }} · {{ order.customer.email }}</small></span>
+              <span class="order-meta"><span :class="['badge', statusClass(order.status)]">{{ statusLabel(order.status) }}</span><b>{{ formatPrice(order.total) }}</b></span>
+            </button>
+            <p v-if="!filteredOrders.length" class="status-line">No hay órdenes en esta vista.</p>
           </div>
 
-          <div v-if="isLoadingOrders" class="status-line">Cargando...</div>
-          <template v-else>
-            <div class="list">
-              <button v-for="order in filteredOrders" :key="order._id" class="row" :class="{ on: selectedOrder?._id === order._id }" type="button" @click="selectedOrder = order; selectedProduct = null">
-                <div class="row-col">
-                  <span class="code">{{ order.orderNumber }}</span>
-                  <span class="meta">{{ order.customer.name }}</span>
-                </div>
-                <div class="row-col right">
-                  <span :class="['badge', statusClass(order.status)]">{{ statusLabel(order.status) }}</span>
-                  <span class="amount">{{ formatPrice(order.total) }}</span>
-                </div>
-              </button>
-              <p v-if="!filteredOrders.length" class="empty-state">Sin resultados</p>
-            </div>
-          </template>
-
-          <div v-if="selectedOrder" class="detail">
+          <aside v-if="selectedOrder" class="order-detail">
             <div class="detail-top">
-              <div>
-                <p class="detail-label">Pedido</p>
-                <h3>{{ selectedOrder.orderNumber }}</h3>
-              </div>
+              <div><p class="detail-label">Pedido</p><h3>{{ selectedOrder.orderNumber }}</h3></div>
               <span :class="['badge', statusClass(selectedOrder.status)]">{{ statusLabel(selectedOrder.status) }}</span>
             </div>
-
             <div class="detail-grid">
-              <div>
-                <p class="detail-label">Cliente</p>
-                <p class="detail-val">{{ selectedOrder.customer.name }}</p>
-                <p class="detail-sub">{{ selectedOrder.customer.email }} · {{ selectedOrder.customer.phone }}</p>
-              </div>
-              <div>
-                <p class="detail-label">Entrega</p>
-                <p class="detail-val">Para {{ selectedOrder.delivery.recipient }}</p>
-                <p class="detail-sub">{{ selectedOrder.delivery.date }} · {{ selectedOrder.delivery.timeSlot }}</p>
-                <p class="detail-sub">{{ selectedOrder.delivery.address }}</p>
-                <a class="map-link" :href="selectedOrder.delivery.mapUrl" target="_blank">Mapa ↗</a>
-              </div>
+              <div><p class="detail-label">Cliente</p><p class="detail-value">{{ selectedOrder.customer.name }}</p><p>{{ selectedOrder.customer.email }}<br>{{ selectedOrder.customer.phone }}</p></div>
+              <div><p class="detail-label">Entrega</p><p class="detail-value">Para {{ selectedOrder.delivery.recipient }}</p><p>{{ selectedOrder.delivery.date }} · {{ selectedOrder.delivery.timeSlot }}<br>{{ selectedOrder.delivery.address }}</p><a :href="selectedOrder.delivery.mapUrl" target="_blank" rel="noopener">Ver mapa</a></div>
             </div>
-
-            <div v-if="selectedOrder.delivery.messageCard" class="detail-card">
-              <p class="detail-label">Tarjeta</p>
-              <p class="card-msg">“{{ selectedOrder.delivery.messageCard }}”</p>
-            </div>
-
-            <div class="detail-items">
-              <p class="detail-label">Items</p>
-              <div v-for="item in selectedOrder.items" :key="item.name" class="item-line">
-                <span>{{ item.quantity }} × {{ item.name }}</span>
-                <span>{{ formatPrice(item.price * item.quantity) }}</span>
-              </div>
-              <div class="item-line total-line">
-                <span>Total</span><strong>{{ formatPrice(selectedOrder.total) }}</strong>
-              </div>
-            </div>
-
-            <a class="wa-btn" :href="whatsappLink(selectedOrder.customer.phone, selectedOrder.orderNumber)" target="_blank">WhatsApp ↗</a>
-          </div>
-        </section>
-
-        <!-- ═══ PRODUCTS ═══ -->
-        <section class="card">
-          <div class="card-header">
-            <h2>Productos</h2>
-            <div class="card-tools">
-              <input v-model.trim="productSearch" type="search" placeholder="Buscar producto...">
-              <button class="add-btn" type="button" @click="newProduct">+ Nuevo</button>
-            </div>
-          </div>
-
-          <div v-if="isLoadingProducts" class="status-line">Cargando...</div>
-          <div v-else class="list">
-            <button v-for="product in filteredProducts" :key="product._id" class="row" :class="{ on: selectedProduct?._id === product._id }" type="button" @click="selectProduct(product)">
-              <img v-if="product.image" :src="product.image" :alt="product.name">
-              <div class="row-col full-w">
-                <span class="name">{{ product.name }}</span>
-                <span class="meta">{{ product.sku }} · {{ formatPrice(product.price) }}</span>
-              </div>
-            </button>
-            <p v-if="!filteredProducts.length" class="empty-state">Sin resultados</p>
-          </div>
-
-          <div v-if="selectedProduct" class="detail">
-            <div class="detail-top">
-              <div>
-                <p class="detail-label">{{ isNewProduct ? 'Nuevo' : 'Editar' }}</p>
-                <h3>{{ selectedProduct.name || 'Sin nombre' }}</h3>
-              </div>
-              <div class="toggles">
-                <label class="toggle"><input v-model="selectedProduct.available" type="checkbox"> Activo</label>
-                <label class="toggle"><input v-model="selectedProduct.featured" type="checkbox"> Destacado</label>
-              </div>
-            </div>
-            <div v-if="selectedProduct.image" class="prod-img"><img :src="selectedProduct.image" :alt="selectedProduct.name"></div>
-
-            <form @submit.prevent="saveProduct" class="editor-form">
-              <div class="f-row">
-                <label>Nombre<input v-model.trim="selectedProduct.name" required></label>
-                <label>SKU<input v-model.trim="selectedProduct.sku" required></label>
-              </div>
-              <div class="f-row">
-                <label>Colección<input v-model.trim="selectedProduct.collection" placeholder="Girasoles preservados"></label>
-                <label>Paleta<input v-model.trim="selectedProduct.palette" placeholder="Amarillo mostaza"></label>
-              </div>
-              <div class="f-row">
-                <label>Medidas<input v-model.trim="selectedProduct.dimensions" placeholder="18 × 27 cm"></label>
-                <label>Precio USD<input v-model.number="selectedProduct.price" min="0" step="0.01" type="number"></label>
-              </div>
-              <label>Categorías <small>(coma separada)</small><input :value="categoriesText(selectedProduct)" @input="setCategoriesText(($event.target as HTMLInputElement).value)"></label>
-              <label>Imagen URL<input v-model.trim="selectedProduct.image" type="url" placeholder="https://res.cloudinary.com/..."></label>
-              <label>Descripción<textarea v-model.trim="selectedProduct.description" rows="3"></textarea></label>
-              <p v-if="productMessage" class="form-feedback">{{ productMessage }}</p>
-              <div class="f-actions">
-                <button class="save-btn" :disabled="isSavingProduct" type="submit">{{ isSavingProduct ? 'Guardando…' : (isNewProduct ? 'Crear producto' : 'Guardar cambios') }}</button>
-                <button v-if="isNewProduct" class="ghost-btn" type="button" @click="selectedProduct = null; isNewProduct = false">Cancelar</button>
-              </div>
-            </form>
-          </div>
-        </section>
-      </div>
+            <div v-if="selectedOrder.delivery.messageCard" class="message-card"><p class="detail-label">Tarjeta</p><p>“{{ selectedOrder.delivery.messageCard }}”</p></div>
+            <div class="items"><p class="detail-label">Items</p><div v-for="item in selectedOrder.items" :key="`${item.name}-${item.price}`"><span>{{ item.quantity }} × {{ item.name }}</span><span>{{ formatPrice(item.price * item.quantity) }}</span></div><div class="total"><span>Total</span><strong>{{ formatPrice(selectedOrder.total) }}</strong></div></div>
+            <a class="whatsapp-link" :href="whatsappLink(selectedOrder.customer.phone, selectedOrder.orderNumber)" target="_blank" rel="noopener">Contactar por WhatsApp</a>
+          </aside>
+          <aside v-else class="empty-detail">Selecciona una orden para ver el cliente, la entrega y los productos comprados.</aside>
+        </div>
+      </section>
     </main>
   </div>
 </template>
 
 <style lang="scss" scoped>
-.shell {
-  min-height: 100vh;
-  background: #f5f0ec;
-  color: #211817;
-  font-family: $font-principal;
-}
-
-/* ── Top bar ── */
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 5vw;
-  background: #fffaf6;
-  border-bottom: 1px solid #e4d7d0;
-}
-.brand {
-  color: inherit;
-  text-decoration: none;
-  font: 600 28px/1 $font-secondary;
-  letter-spacing: -2px;
-}
-.brand span { color: #9a4f58; }
-nav { display: flex; align-items: center; gap: 16px; }
-.admin-label {
-  font: 500 9px $font-principal;
-  letter-spacing: 1.4px;
-  text-transform: uppercase;
-  color: #9a4f58;
-  padding: 3px 8px;
-  border: 1px solid #ddc8c0;
-  border-radius: 4px;
-}
-nav button {
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: #706663;
-  font: 600 11px $font-principal;
-  cursor: pointer;
-}
-nav button:hover { color: #211817; }
-
-/* ── Dashboard head ── */
-.dash {
-  max-width: 1360px;
-  margin: 0 auto;
-  padding: 44px 5vw 80px;
-}
-.dash-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  margin-bottom: 32px;
-}
-.overline {
-  margin: 0;
-  font: 500 9px $font-principal;
-  letter-spacing: 1.6px;
-  text-transform: uppercase;
-  color: #9a4f58;
-}
-.dash-head h1 {
-  margin: 8px 0 0;
-  font: 500 clamp(36px, 5vw, 64px)/0.82 $font-secondary;
-  letter-spacing: -0.06em;
-}
-.dash-head h1 i { padding-left: 7vw; }
-.refresh-btn {
-  border: 0;
-  padding: 0 0 4px;
-  background: transparent;
-  color: #211817;
-  font: 600 10px $font-principal;
-  letter-spacing: 0.4px;
-  border-bottom: 1px solid #211817;
-  cursor: pointer;
-}
-
-/* ── Stats row ── */
-.cards-row {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1px;
-  background: #ddcec6;
-  border-radius: 8px;
-  overflow: hidden;
-  margin-bottom: 36px;
-}
-.stat {
-  background: #fffaf6;
-  padding: 18px 22px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.stat span {
-  font: 500 9px $font-principal;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  color: #9c8c86;
-}
-.stat strong {
-  font: 500 32px $font-secondary;
-  letter-spacing: -0.04em;
-}
-
-/* ── Two-panel grid ── */
-.panels {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 28px;
-  align-items: start;
-}
-.card {
-  background: #fffaf6;
-  border: 1px solid #e4d7d0;
-  border-radius: 10px;
-  overflow: hidden;
-}
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid #ede3dd;
-}
-.card-header h2 {
-  margin: 0;
-  font: 500 22px $font-secondary;
-  letter-spacing: -0.04em;
-}
-.card-tools {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.card-tools input {
-  width: 180px;
-  box-sizing: border-box;
-  border: 1px solid #d9cbc4;
-  border-radius: 6px;
-  padding: 7px 10px;
-  font: 13px $font-principal;
-  background: #fffdfb;
-  color: #211817;
-}
-.add-btn {
-  border: 1px solid #9a4f58;
-  border-radius: 6px;
-  padding: 7px 12px;
-  color: #9a4f58;
-  background: transparent;
-  font: 600 9px $font-principal;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.add-btn:hover {
-  color: #fffaf6;
-  background: #9a4f58;
-}
-
-/* ── Scrollable list ── */
-.list {
-  max-height: 380px;
-  overflow-y: auto;
-}
-.list::-webkit-scrollbar { width: 4px; }
-.list::-webkit-scrollbar-thumb { background: #d9c8c0; border-radius: 4px; }
-
-.row {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 20px;
-  border: 0;
-  border-bottom: 1px solid #f0e7e2;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.row:hover { background: #f9f3ef; }
-.row.on { background: #f0e1da; }
-
-.row img {
-  width: 36px;
-  height: 36px;
-  border-radius: 4px;
-  object-fit: cover;
-  flex: none;
-}
-.row-col {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.row-col.full-w { flex: 1; }
-.row-col.right {
-  margin-left: auto;
-  align-items: flex-end;
-}
-.code, .name {
-  font: 600 12px $font-principal;
-}
-.meta {
-  font-size: 10px;
-  color: #9c8c86;
-}
-.amount {
-  font: 11px 'DM Mono', monospace;
-}
-.badge {
-  display: inline-block;
-  font: 600 8px $font-principal;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  padding: 2px 7px;
-  border-radius: 4px;
-}
-.badge.ok { color: #3d6e47; background: #e2f0e5; }
-.badge.warn { color: #a16829; background: #f7edd6; }
-.badge.err { color: #b23d45; background: #f3ddde; }
-.status-line, .empty-state {
-  padding: 28px 20px;
-  text-align: center;
-  color: #9c8c86;
-  font-size: 12px;
-}
-
-/* ── Detail section ── */
-.detail {
-  border-top: 1px solid #ede3dd;
-  padding: 20px;
-  background: #faf5f1;
-}
-.detail-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 16px;
-}
-.detail-label {
-  margin: 0 0 3px;
-  font: 600 8px $font-principal;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: #9c8c86;
-}
-.detail-top h3 {
-  margin: 0;
-  font: 500 20px $font-secondary;
-}
-.toggles {
-  display: flex;
-  gap: 12px;
-}
-.toggle {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: #706663;
-  font: 600 8px $font-principal;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-.toggle input { accent-color: #9a4f58; }
-
-.detail-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-  margin-bottom: 12px;
-}
-.detail-val {
-  margin: 0;
-  font: 600 13px $font-principal;
-}
-.detail-sub {
-  margin: 3px 0 0;
-  font-size: 11px;
-  color: #706663;
-  line-height: 1.4;
-}
-.map-link {
-  display: inline-block;
-  margin-top: 4px;
-  color: #9a4f58;
-  font: 600 10px $font-principal;
-  text-decoration: none;
-}
-.detail-card {
-  margin-bottom: 12px;
-  padding: 12px;
-  background: #f0e1da;
-  border-radius: 6px;
-}
-.card-msg {
-  margin: 4px 0 0;
-  font: 500 15px $font-secondary;
-  line-height: 1.3;
-}
-.detail-items { margin-bottom: 10px; }
-.item-line {
-  display: flex;
-  justify-content: space-between;
-  padding: 5px 0;
-  font-size: 12px;
-  border-bottom: 1px solid #ede3dd;
-}
-.total-line {
-  padding-top: 8px;
-  font: 500 16px $font-secondary;
-  border-top: 1px solid #d9c8c0;
-  border-bottom: 0;
-}
-.wa-btn {
-  display: inline-block;
-  border: 0;
-  border-radius: 6px;
-  padding: 9px 16px;
-  color: #fffaf6;
-  background: #427a55;
-  text-decoration: none;
-  font: 600 10px $font-principal;
-  letter-spacing: 0.04em;
-}
-
-/* ── Product image ── */
-.prod-img {
-  width: 100%;
-  max-height: 200px;
-  overflow: hidden;
-  border-radius: 6px;
-  margin-bottom: 14px;
-}
-.prod-img img {
-  width: 100%;
-  height: auto;
-  display: block;
-}
-
-/* ── Editor form ── */
-.editor-form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.f-row {
-  display: flex;
-  gap: 10px;
-}
-.f-row label { flex: 1; }
-label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font: 600 9px $font-principal;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: #706663;
-}
-label small {
-  color: #9a4f58;
-  font-size: 8px;
-  letter-spacing: 0.02em;
-  text-transform: none;
-}
-.editor-form input, .editor-form textarea {
-  box-sizing: border-box;
-  border: 1px solid #d9c8c0;
-  border-radius: 6px;
-  padding: 8px 10px;
-  font: 13px $font-principal;
-  color: #211817;
-  background: #fffdfb;
-}
-.editor-form textarea { resize: vertical; }
-.form-feedback {
-  margin: 0;
-  padding: 8px 12px;
-  border-radius: 6px;
-  background: #f0e1da;
-  color: #625551;
-  font-size: 11px;
-}
-.f-actions {
-  display: flex;
-  gap: 10px;
-}
-.save-btn {
-  flex: 1;
-  border: 0;
-  border-radius: 6px;
-  padding: 11px;
-  color: #fffaf6;
-  background: #9a4f58;
-  font: 600 11px $font-principal;
-  cursor: pointer;
-}
-.save-btn:disabled { opacity: 0.6; cursor: wait; }
-.ghost-btn {
-  border: 1px solid #706663;
-  border-radius: 6px;
-  padding: 11px 16px;
-  color: #706663;
-  background: transparent;
-  font: 600 10px $font-principal;
-  cursor: pointer;
-}
-
-/* ── Responsive ── */
-@media (max-width: 900px) {
-  .panels { grid-template-columns: 1fr; }
-  .cards-row { grid-template-columns: 1fr 1fr; }
-  .detail-grid { grid-template-columns: 1fr; }
-  .f-row { flex-direction: column; }
-}
+.shell { min-height: 100vh; background: #f5f0ec; color: #211817; font-family: $font-principal; }
+.topbar { display: flex; align-items: center; justify-content: space-between; padding: 14px 5vw; background: #fffaf6; border-bottom: 1px solid #e4d7d0; }
+.brand { color: inherit; text-decoration: none; font: 600 28px/1 $font-secondary; letter-spacing: -2px; }.brand span { color: #9a4f58; }
+nav { display: flex; align-items: center; gap: 16px; } nav a, nav button { border: 0; padding: 0; color: #706663; background: transparent; font: 600 11px $font-principal; text-decoration: none; cursor: pointer; } nav a.router-link-exact-active, nav a:hover, nav button:hover { color: #211817; }
+.admin-label { padding: 3px 8px; color: #9a4f58; border: 1px solid #ddc8c0; border-radius: 4px; font: 500 9px $font-principal; letter-spacing: 1.4px; text-transform: uppercase; }
+.dash { max-width: 1220px; margin: 0 auto; padding: 44px 5vw 80px; }.dash-head { display: flex; justify-content: space-between; gap: 28px; align-items: flex-end; margin-bottom: 32px; }.overline { margin: 0; color: #9a4f58; font: 500 9px $font-principal; letter-spacing: 1.6px; text-transform: uppercase; }.dash-head h1 { margin: 8px 0 18px; font: 500 clamp(42px, 6vw, 72px)/.82 $font-secondary; letter-spacing: -.06em; }.dash-head h1 i { padding-left: 7vw; }.dash-head > div > p:last-child { max-width: 420px; margin: 0; color: #706663; font-size: 14px; line-height: 1.5; }.head-actions { display: flex; gap: 16px; align-items: center; padding-bottom: 5px; }.products-link, .refresh-btn { border: 0; padding: 0 0 4px; color: #211817; background: transparent; border-bottom: 1px solid #211817; font: 600 10px $font-principal; text-decoration: none; cursor: pointer; }.products-link { color: #9a4f58; border-bottom-color: #9a4f58; }
+.cards-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-bottom: 36px; overflow: hidden; background: #ddcec6; border-radius: 8px; }.stat { display: flex; flex-direction: column; gap: 6px; padding: 18px 22px; background: #fffaf6; }.stat span, .detail-label { color: #9c8c86; font: 600 8px $font-principal; letter-spacing: .12em; text-transform: uppercase; }.stat strong { font: 500 29px $font-secondary; letter-spacing: -.04em; }
+.orders-card { overflow: hidden; background: #fffaf6; border: 1px solid #e4d7d0; border-radius: 10px; }.card-header { display: flex; align-items: end; justify-content: space-between; gap: 20px; padding: 18px 22px; border-bottom: 1px solid #ede3dd; }.card-header h2 { margin: 4px 0 0; font: 500 27px $font-secondary; letter-spacing: -.04em; }.card-header input { width: min(260px, 100%); box-sizing: border-box; border: 1px solid #d9cbc4; border-radius: 6px; padding: 9px 11px; color: #211817; background: #fffdfb; font: 13px $font-principal; }
+.order-views { display: flex; gap: 18px; padding: 11px 22px; border-bottom: 1px solid #ede3dd; }.order-views button { border: 0; padding: 0 0 4px; color: #9c8c86; background: transparent; border-bottom: 1px solid transparent; font: 600 9px $font-principal; letter-spacing: .05em; text-transform: uppercase; cursor: pointer; }.order-views button.active { color: #9a4f58; border-bottom-color: #9a4f58; }.order-views span { display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; margin-left: 3px; border-radius: 50%; background: #f0e1da; font-size: 8px; }
+.orders-workspace { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(300px, .95fr); min-height: 430px; }.orders-list { max-height: 640px; overflow-y: auto; }.order-row { display: flex; justify-content: space-between; width: 100%; gap: 16px; padding: 14px 20px; border: 0; border-bottom: 1px solid #f0e7e2; background: transparent; text-align: left; cursor: pointer; }.order-row:hover { background: #f9f3ef; }.order-row.selected { background: #f0e1da; }.order-main, .order-meta { display: flex; flex-direction: column; gap: 4px; min-width: 0; }.order-main b { font-size: 13px; }.order-main small { overflow: hidden; color: #706663; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }.order-meta { align-items: end; flex: none; }.order-meta > b { font: 11px 'DM Mono', monospace; }.badge { display: inline-block; padding: 3px 7px; border-radius: 4px; font: 600 8px $font-principal; letter-spacing: .08em; text-transform: uppercase; }.badge.ok { color: #3d6e47; background: #e2f0e5; }.badge.warn { color: #a16829; background: #f7edd6; }.badge.err { color: #b23d45; background: #f3ddde; }
+.order-detail, .empty-detail { padding: 22px; background: #faf5f1; border-left: 1px solid #ede3dd; }.detail-top { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 18px; }.detail-top h3 { margin: 4px 0 0; font: 500 22px $font-secondary; }.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }.detail-grid p:not(.detail-label) { margin: 4px 0 0; color: #706663; font-size: 12px; line-height: 1.45; }.detail-value { color: #211817 !important; font-weight: 600; }.detail-grid a { display: inline-block; margin-top: 5px; color: #9a4f58; font-size: 11px; text-decoration: none; }.message-card { margin-bottom: 16px; padding: 12px; background: #f0e1da; border-radius: 6px; }.message-card p:last-child { margin: 5px 0 0; font: 500 16px/1.3 $font-secondary; }.items > div { display: flex; justify-content: space-between; gap: 16px; padding: 6px 0; border-bottom: 1px solid #ede3dd; font-size: 12px; }.items .total { margin-top: 2px; padding-top: 9px; border-bottom: 0; font: 500 17px $font-secondary; }.whatsapp-link { display: inline-block; margin-top: 17px; padding: 10px 14px; color: #fffaf6; background: #427a55; border-radius: 6px; font: 600 10px $font-principal; text-decoration: none; }.empty-detail { display: grid; place-items: center; color: #9c8c86; font-size: 13px; line-height: 1.5; text-align: center; }.status-line { margin: 0; padding: 32px 22px; color: #9c8c86; font-size: 13px; text-align: center; }.status-line.error { color: #b23d45; }
+@media (max-width: 760px) { .topbar, .dash-head, .card-header { align-items: flex-start; }.topbar { gap: 14px; }.topbar nav { flex-wrap: wrap; justify-content: flex-end; gap: 9px 13px; }.dash { padding-top: 34px; }.dash-head, .card-header { flex-direction: column; }.head-actions { padding: 0; }.cards-row { grid-template-columns: 1fr 1fr; }.stat { padding: 15px; }.orders-workspace { grid-template-columns: 1fr; }.order-detail, .empty-detail { border-top: 1px solid #ede3dd; border-left: 0; }.detail-grid { grid-template-columns: 1fr; }.card-header input { width: 100%; }.order-views { gap: 14px; }.order-row { padding: 13px 15px; } }
 </style>
