@@ -54,6 +54,10 @@ class AdminApi extends APIBase {
   updateProduct(id: string, payload: Omit<AdminProduct, '_id'>) {
     return this.patch<AdminProduct>(`admin/products/${id}`, payload)
   }
+
+  deleteProduct(id: string) {
+    return this.delete(`admin/products/${id}`)
+  }
 }
 
 export const adminApi = new AdminApi()
