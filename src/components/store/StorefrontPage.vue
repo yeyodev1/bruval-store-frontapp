@@ -446,7 +446,10 @@ watch(activeCategory, async () => {
         <span>Primero los destacados</span>
         <span>De la temporada</span>
       </div>
-      <p class="image-reference-note">Las imágenes son referenciales. Cada arreglo es elaborado artesanalmente y puede variar según la disponibilidad floral.</p>
+      <aside class="image-reference-notice" aria-label="Información sobre las imágenes de productos">
+        <strong>Imágenes referenciales</strong>
+        <p>Cada arreglo es elaborado artesanalmente y puede variar según la disponibilidad floral.</p>
+      </aside>
       <div class="product-list">
         <template v-if="isLoading"
           ><article
@@ -1061,7 +1064,7 @@ h1 i {
   gap: 48px 2%;
 }
 .catalog-toggle { display:flex; flex-direction:column; align-items:center; gap:24px; margin-top:58px; } .catalog-toggle > button { border:1px solid $primary; padding:14px 18px; color:$primary; background:transparent; font:600 11px $font-principal; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; transition:.2s; } .catalog-toggle > button:hover { color:$white; background:$primary; } .category-filters { display:flex; max-width:100%; gap:8px; overflow-x:auto; padding-bottom:4px; } .category-filters button { flex:0 0 auto; border:1px solid #d5dde6; padding:9px 13px; color:$text-secondary; background:transparent; font:600 10px $font-principal; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; } .category-filters button.active { color:$white; border-color:$primary; background:$primary; } .featured-label { display:flex; gap:10px; margin-bottom:38px; flex-wrap:wrap; } .featured-label span { border:1px solid rgba($primary,.25); padding:7px 11px; color:$primary; background:rgba($primary,.06); font:600 9px $font-principal; letter-spacing:.08em; text-transform:uppercase; } .catalog-sentinel { width:100%; height:60px; display:flex; align-items:center; justify-content:center; color:$text-secondary; font-size:11px; letter-spacing:.06em; text-transform:uppercase; }
-.image-reference-note { max-width: 580px; margin: -20px 0 34px; color: $text-secondary; font-size: 12px; line-height: 1.55; }
+.image-reference-notice { max-width: 620px; margin: -18px 0 38px; padding: 15px 17px; border: 1px solid rgba($primary, .22); border-left: 4px solid $primary; background: $primary-light; } .image-reference-notice strong { display: block; margin-bottom: 4px; color: $primary; font: 700 11px $font-principal; letter-spacing: .08em; text-transform: uppercase; } .image-reference-notice p { color: $text-secondary; font-size: 13px; line-height: 1.5; }
 .product-card {
   width: calc(25% - 1.5%);
   min-width: 210px;
