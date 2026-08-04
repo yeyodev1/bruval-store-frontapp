@@ -26,7 +26,7 @@ export interface CheckoutPayload {
   offerId: string
   items: Array<{ productId: string; quantity: number }>
   customer: { name: string; email: string; phone: string; phoneConfirmed: boolean }
-  delivery: { recipient: string; address: string; mapUrl: string; date: string; timeSlot: string; messageCard: string }
+  delivery: { recipient: string; address: string; mapUrl: string; zone: string; date: string; timeSlot: string; messageCard: string }
 }
 
 class StoreApi extends APIBase {

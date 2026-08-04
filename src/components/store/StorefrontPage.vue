@@ -24,6 +24,7 @@ const checkoutDefaults = {
   recipient: "",
   address: "",
   mapUrl: "",
+  zone: "",
   date: "",
   timeSlot: "09:00 - 12:00",
   messageCard: "",
@@ -52,6 +53,7 @@ const sentinel = ref<HTMLElement | null>(null);
 const isCheckoutOpen = ref(false);
 const isCheckoutWhatsAppOpen = ref(false);
 const isCheckoutWhatsAppConfirmationOpen = ref(false);
+const isDeliveryZoneWarningOpen = ref(false);
 const checkoutStep = ref<"details" | "payment">("details");
 const isSubmitting = ref(false);
 const errorMessage = ref("");
@@ -69,10 +71,36 @@ const cartCount = computed(() =>
 const subtotal = computed(() =>
   cart.value.reduce((total, item) => total + item.price * item.quantity, 0),
 );
-const deliveryFee = computed(() => (cart.value.length ? 4.5 : 0));
+const deliveryZones = [
+  { name: "Zona Centro", fee: 8 },
+  { name: "Zona Norte", fee: 8 },
+  { name: "Zona Sur", fee: 10 },
+  { name: "Zona Sur Sector Puerto", fee: 13 },
+  { name: "Zona Durán Centro", fee: 10 },
+  { name: "Vía Durán Tambo", fee: 12 },
+  { name: "Vía Samborondón (hasta el Km 5)", fee: 10 },
+  { name: "Vía Samborondón (desde Km 5 hasta Estancia del Río)", fee: 12 },
+  { name: "Vía a Daule (hasta el Km 10)", fee: 10 },
+  { name: "Vía a Daule (desde Km 10 hasta Km 16)", fee: 13 },
+  { name: "Vía Daule (hasta Unilever)", fee: 18 },
+  { name: "Vía Salitre", fee: 13 },
+  { name: "Vía La Costa Chongón", fee: 18 },
+  { name: "La Aurora (La Joya, Villa Club, Villas del Rey)", fee: 12 },
+  { name: "Sector Centro Comercial El Dorado", fee: 13 },
+];
+const selectedDeliveryZone = computed(() =>
+  deliveryZones.find((zone) => zone.name === checkout.value.zone),
+);
+const deliveryFee = computed(() =>
+  cart.value.length ? selectedDeliveryZone.value?.fee ?? 0 : 0,
+);
 const total = computed(() => subtotal.value + deliveryFee.value);
 const formatPrice = (value: number) => `$${value.toFixed(2)}`;
-const categories = computed(() => ["Todos", ...Array.from(new Set(products.value.flatMap((product) => product.categories || []))).sort((a, b) => a.localeCompare(b, "es"))]);
+function productImage(url: string, width: number, height: number) {
+  if (!url.includes("res.cloudinary.com") || !url.includes("/upload/")) return url;
+  return url.replace("/upload/", `/upload/c_pad,b_auto,f_auto,q_auto,w_${width},h_${height}/`);
+}
+const categories = ["Todos", "Preservados", "Naturales"];
 const homeProducts = computed(() => products.value.slice(0, 5));
 const displayedProducts = computed(() => showFullCatalog.value ? activeCategory.value === "Todos" ? products.value : products.value.filter((product) => product.categories?.includes(activeCategory.value)) : homeProducts.value);
 
@@ -147,7 +175,8 @@ async function loadMore() {
     const nextPage = catalogPage.value + 1;
     const category = activeCategory.value !== "Todos" ? activeCategory.value : undefined;
     const { data } = await storeApi.products(offerId, nextPage, 5, category);
-    products.value = [...products.value, ...data.products];
+    const currentIds = new Set(products.value.map((product) => product._id));
+    products.value = [...products.value, ...data.products.filter((product) => !currentIds.has(product._id))];
     catalogPage.value = nextPage;
     hasMore.value = data.pagination?.hasMore ?? false;
   } finally {
@@ -184,6 +213,10 @@ function openCheckoutWhatsApp() {
 }
 
 async function beginPayment() {
+  if (!selectedDeliveryZone.value) {
+    errorMessage.value = "Selecciona una zona de entrega para continuar.";
+    return;
+  }
   isSubmitting.value = true;
   errorMessage.value = "";
   try {
@@ -203,6 +236,7 @@ async function beginPayment() {
         recipient: checkout.value.recipient,
         address: checkout.value.address,
         mapUrl: checkout.value.mapUrl,
+        zone: checkout.value.zone,
         date: checkout.value.date,
         timeSlot: checkout.value.timeSlot,
         messageCard: checkout.value.messageCard,
@@ -220,6 +254,14 @@ async function beginPayment() {
   } finally {
     isSubmitting.value = false;
   }
+}
+
+function confirmDeliveryDetails() {
+  if (!selectedDeliveryZone.value) {
+    errorMessage.value = "Selecciona una zona de entrega para continuar.";
+    return;
+  }
+  isDeliveryZoneWarningOpen.value = true;
 }
 
 function loadPayphoneStyles() {
@@ -349,7 +391,7 @@ watch(activeCategory, async () => {
   <main class="storefront">
     <header class="site-header">
       <nav class="nav" aria-label="Navegación principal">
-        <a class="brand" href="#inicio">bruval<span>.</span></a>
+        <a class="brand" href="#inicio" aria-label="Bruval, inicio"><img src="/logo-bruval.png" alt="Bruval" /></a>
         <a class="nav-link" href="#coleccion">Colección</a>
         <a class="nav-link" href="/pedido">¿Ya tienes un pedido?</a>
         <p class="nav-note">Flores para sentir cerca</p>
@@ -377,8 +419,8 @@ watch(activeCategory, async () => {
       </div>
       <div class="hero-image image-loading" :class="{ 'image-ready': loadedImages.has('hero') }">
         <img
-          src="https://images.unsplash.com/photo-1490750967868-88aa4486c946?auto=format&fit=crop&w=1500&q=90"
-          alt="Arreglo floral Bruval"
+          src="https://i0.wp.com/bruval.com.ec/home/wp-content/uploads/2026/01/BOUQUET-140.webp?resize=900%2C1100&ssl=1"
+          alt="Bouquet floral Bruval"
           @load="markImageLoaded('hero')"
         />
         <p>Hecho para tu momento</p>
@@ -404,6 +446,7 @@ watch(activeCategory, async () => {
         <span>Primero los destacados</span>
         <span>De la temporada</span>
       </div>
+      <p class="image-reference-note">Las imágenes son referenciales. Cada arreglo es elaborado artesanalmente y puede variar según la disponibilidad floral.</p>
       <div class="product-list">
         <template v-if="isLoading"
           ><article
@@ -426,7 +469,7 @@ watch(activeCategory, async () => {
             type="button"
             @click="selected = product"
           >
-            <img :src="product.image" :alt="product.name" @load="markImageLoaded(product.image)" /><span>{{
+            <img :src="productImage(product.image, 720, 780)" :alt="product.name" @load="markImageLoaded(product.image)" /><span>{{
               product.palette
             }}</span>
             <b v-if="product.webExclusive" class="web-exclusive">Web exclusivo · {{ product.discountPercentage }}% OFF</b>
@@ -472,21 +515,22 @@ watch(activeCategory, async () => {
       <div><span>Fresco</span><span>Local</span><span>Intencional</span></div>
     </section>
     <footer>
-      <a class="brand" href="#inicio">bruval<span>.</span></a>
+      <a class="brand" href="#inicio" aria-label="Bruval, inicio"><img src="/logo-bruval.png" alt="Bruval" /></a>
       <p>Guayaquil, Ecuador · Todos los días</p>
       <p>© 2026 Bruval Flores</p>
     </footer>
 
     <Transition name="fade"
       ><div
-        v-if="isCartOpen || selected || isCheckoutOpen || isCheckoutWhatsAppOpen || isCheckoutWhatsAppConfirmationOpen"
+        v-if="isCartOpen || selected || isCheckoutOpen || isCheckoutWhatsAppOpen || isCheckoutWhatsAppConfirmationOpen || isDeliveryZoneWarningOpen"
         class="backdrop"
         @click.self="
-          isCartOpen = false;
-          selected = null;
-          isCheckoutOpen = false;
-          isCheckoutWhatsAppOpen = false;
-          isCheckoutWhatsAppConfirmationOpen = false;
+           isCartOpen = false;
+           selected = null;
+           isCheckoutOpen = false;
+            isCheckoutWhatsAppOpen = false;
+            isCheckoutWhatsAppConfirmationOpen = false;
+            isDeliveryZoneWarningOpen = false;
         "
       ></div
     ></Transition>
@@ -501,7 +545,7 @@ watch(activeCategory, async () => {
         </div>
         <div v-if="cart.length" class="cart-items">
           <div v-for="item in cart" :key="item._id" class="cart-item">
-            <img :src="item.image" :alt="item.name" />
+            <img :src="productImage(item.image, 160, 160)" :alt="item.name" />
             <div>
               <h3>{{ item.name }}</h3>
               <p>{{ formatPrice(item.price) }}</p>
@@ -528,10 +572,10 @@ watch(activeCategory, async () => {
             <span>Subtotal</span><strong>{{ formatPrice(subtotal) }}</strong>
           </div>
           <div>
-            <span>Entrega</span><strong>{{ formatPrice(deliveryFee) }}</strong>
+            <span>Entrega</span><strong>{{ selectedDeliveryZone ? formatPrice(deliveryFee) : "Selecciona tu zona" }}</strong>
           </div>
           <div class="grand-total">
-            <span>Total</span><strong>{{ formatPrice(total) }}</strong>
+            <span>Total</span><strong>{{ selectedDeliveryZone ? formatPrice(total) : "Selecciona tu zona" }}</strong>
           </div>
           <button class="primary-button" type="button" @click="openCheckout">
             Continuar al checkout <span>→</span>
@@ -547,7 +591,7 @@ watch(activeCategory, async () => {
       ><section v-if="selected" class="modal product-modal">
         <button class="close" type="button" @click="selected = null">×</button
         ><div class="product-modal-image image-loading" :class="{ 'image-ready': loadedImages.has(selected.image) }">
-          <img :src="selected.image" :alt="selected.name" @load="markImageLoaded(selected.image)" />
+          <img :src="productImage(selected.image, 900, 1100)" :alt="selected.name" @load="markImageLoaded(selected.image)" />
         </div>
         <div class="product-modal-content">
           <p class="eyebrow">{{ selected.palette }}</p>
@@ -568,6 +612,7 @@ watch(activeCategory, async () => {
             </div>
           </dl>
           <p>{{ selected.description }}</p>
+          <p class="image-reference-note modal-reference">Imagen referencial. La composición puede variar según la disponibilidad de flores.</p>
           <strong>{{ formatPrice(selected.price) }}</strong
           ><button
             class="primary-button"
@@ -609,7 +654,7 @@ watch(activeCategory, async () => {
         <form
           v-if="checkoutStep === 'details'"
           class="checkout-form"
-          @submit.prevent="beginPayment"
+          @submit.prevent="confirmDeliveryDetails"
         >
           <label
             >Nombre<input
@@ -667,6 +712,16 @@ watch(activeCategory, async () => {
               required
               type="url"
               placeholder="https://maps.google.com/..." /></label
+          ><fieldset class="delivery-zone full">
+            <legend>Zona de entrega</legend>
+            <p>¿A dónde llevamos tus flores? Selecciona tu sector para calcular el envío.</p>
+            <div class="delivery-zone-options" role="radiogroup" aria-label="Zona de entrega">
+              <label v-for="zone in deliveryZones" :key="zone.name" :class="{ selected: checkout.zone === zone.name }">
+                <input v-model="checkout.zone" required type="radio" name="delivery-zone" :value="zone.name" />
+                <span>{{ zone.name }}</span><strong>{{ formatPrice(zone.fee) }}</strong>
+              </label>
+            </div>
+          </fieldset
           ><label class="delivery-date"
             >Fecha de entrega
             <span>Disponible con mínimo 2 horas de anticipación</span><input
@@ -691,7 +746,7 @@ watch(activeCategory, async () => {
           <p v-if="errorMessage" class="error full">{{ errorMessage }}</p>
           <button
             class="primary-button full"
-            :disabled="isSubmitting"
+            :disabled="isSubmitting || !selectedDeliveryZone"
             type="submit"
           >
             {{ isSubmitting ? "Preparando pago..." : "Ir al pago seguro" }}
@@ -738,13 +793,26 @@ watch(activeCategory, async () => {
         </div>
       </aside>
     </Transition>
+    <Transition name="modal">
+      <aside v-if="isDeliveryZoneWarningOpen" class="modal delivery-warning-modal" role="dialog" aria-modal="true" aria-labelledby="delivery-warning-title">
+        <button class="close" type="button" aria-label="Cerrar" @click="isDeliveryZoneWarningOpen = false">×</button>
+        <p class="eyebrow">Confirma tu entrega</p>
+        <h2 id="delivery-warning-title">Revisa la zona y la dirección.</h2>
+        <p>Tu pedido se enviará a <strong>{{ checkout.zone }}</strong>. Verifica que esta zona coincida con la dirección y el enlace de Google Maps que registraste.</p>
+        <p class="delivery-warning-notice">Si seleccionas una zona incorrecta para acceder a una tarifa menor, Bruval no asegura reembolso ni cobertura de la diferencia de envío.</p>
+        <div class="delivery-warning-actions">
+          <button class="delivery-warning-back" type="button" @click="isDeliveryZoneWarningOpen = false">Revisar mis datos</button>
+          <button class="primary-button" type="button" @click="isDeliveryZoneWarningOpen = false; beginPayment()">Confirmo y continúo al pago <span>→</span></button>
+        </div>
+      </aside>
+    </Transition>
   </main>
 </template>
 
 <style lang="scss" scoped>
 .storefront {
-  color: #211817;
-  background: #fffaf6;
+  color: $primary-dark;
+  background: $white;
 }
 button {
   font: inherit;
@@ -756,15 +824,15 @@ button {
   position: relative;
   display: flex;
   flex-direction: column;
-  background: #dfc8bc;
+  background: $primary-light;
 }
 .site-header {
   position: sticky;
   top: 0;
   z-index: 7;
   padding: 15px 4vw;
-  background: rgba(255, 250, 246, 0.9);
-  border-bottom: 1px solid rgba(33, 24, 23, 0.08);
+  background: rgba($white, 0.92);
+  border-bottom: 1px solid rgba($primary, 0.1);
   backdrop-filter: blur(14px);
 }
 .nav,
@@ -783,7 +851,7 @@ footer,
   gap: 20px;
 }
 .nav-link {
-  color: #706663;
+  color: $text-secondary;
   text-decoration: none;
   font-size: 11px;
   letter-spacing: 0.6px;
@@ -797,14 +865,14 @@ footer,
   display: flex;
   align-items: center;
   gap: 18px;
-  color: #fffaf6;
-  background: #211817;
+  color: $white;
+  background: $primary-dark;
   font: 600 10px $font-principal;
   letter-spacing: 0.8px;
   text-transform: uppercase;
 }
 .offer-banner strong {
-  color: #f0b8ad;
+  color: $primary-light;
   font-family: "DM Mono", monospace;
 }
 .offer-banner a {
@@ -813,17 +881,18 @@ footer,
 }
 .offer-banner b {
   margin-left: 4px;
-  color: #f0b8ad;
+  color: $primary-light;
   font-size: 15px;
 }
 .brand {
-  color: inherit;
+  display: inline-flex;
+  align-items: center;
   text-decoration: none;
-  font: 600 31px/1 $font-secondary;
-  letter-spacing: -2px;
 }
-.brand span {
-  color: #a6535b;
+.brand img {
+  width: 142px;
+  height: auto;
+  display: block;
 }
 .nav-note,
 .eyebrow,
@@ -843,15 +912,15 @@ footer,
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #fffaf6;
-  background: #211817;
+  color: $white;
+  background: $primary-dark;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.4px;
   text-transform: uppercase;
 }
 .cart-trigger strong {
-  color: #e9c4ba;
+  color: $primary-light;
   font: 10px "DM Mono", monospace;
 }
 .cart-trigger b {
@@ -862,8 +931,8 @@ footer,
   height: 20px;
   margin-left: 2px;
   border-radius: 50%;
-  background: #e9c4ba;
-  color: #211817;
+  background: $primary-light;
+  color: $primary-dark;
   font-size: 10px;
 }
 .hero-copy {
@@ -875,7 +944,7 @@ footer,
   z-index: 1;
 }
 .eyebrow {
-  color: #9a4f58;
+  color: $primary;
   margin: 0 0 18px;
 }
 h1,
@@ -900,7 +969,7 @@ h1 i {
 .hero-text {
   max-width: 300px;
   margin: 42px 0 23px;
-  color: #4f403d;
+  color: $text-secondary;
   line-height: 1.55;
 }
 .text-link {
@@ -914,7 +983,7 @@ h1 i {
 }
 .text-link span {
   margin-left: 13px;
-  color: #9a4f58;
+  color: $primary;
   font-size: 16px;
 }
 .hero-image {
@@ -926,22 +995,20 @@ h1 i {
   top: 14%;
   overflow: hidden;
 }
-.hero-image img,
-.product-image img {
+.hero-image img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   transition: transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-.hero-image:hover img,
-.product-image:hover img {
+.hero-image:hover img {
   transform: scale(1.04);
 }
 .image-loading::after {
   position: absolute;
   z-index: 1;
   inset: 0;
-  background: linear-gradient(105deg, #eadfd9 25%, #f7f0eb 45%, #eadfd9 65%);
+  background: linear-gradient(105deg, #e8edf2 25%, #f7f9fb 45%, #e8edf2 65%);
   background-size: 220% 100%;
   animation: image-shimmer 1.4s ease-in-out infinite;
   content: "";
@@ -969,7 +1036,7 @@ h1 i {
   bottom: 18px;
   margin: 0;
   padding: 7px 9px;
-  background: #fffaf6;
+  background: $white;
 }
 .collection {
   padding: 150px 5vw 100px;
@@ -985,7 +1052,7 @@ h1 i {
 }
 .section-heading > p {
   width: 290px;
-  color: #706663;
+  color: $text-secondary;
   line-height: 1.6;
 }
 .product-list {
@@ -993,7 +1060,8 @@ h1 i {
   flex-wrap: wrap;
   gap: 48px 2%;
 }
-.catalog-toggle { display:flex; flex-direction:column; align-items:center; gap:24px; margin-top:58px; } .catalog-toggle > button { border:1px solid #211817; padding:14px 18px; color:#211817; background:transparent; font:600 11px $font-principal; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; transition:.2s; } .catalog-toggle > button:hover { color:#fffaf6; background:#211817; } .category-filters { display:flex; max-width:100%; gap:8px; overflow-x:auto; padding-bottom:4px; } .category-filters button { flex:0 0 auto; border:1px solid #d9c8c0; padding:9px 13px; color:#706663; background:transparent; font:600 10px $font-principal; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; } .category-filters button.active { color:#fffaf6; border-color:#a9473f; background:#a9473f; } .featured-label { display:flex; gap:10px; margin-bottom:38px; flex-wrap:wrap; } .featured-label span { border:1px solid #d4a69e; padding:7px 11px; color:#9a4f58; background:rgba(154,79,88,0.06); font:600 9px $font-principal; letter-spacing:.08em; text-transform:uppercase; } .catalog-sentinel { width:100%; height:60px; display:flex; align-items:center; justify-content:center; color:#706663; font-size:11px; letter-spacing:.06em; text-transform:uppercase; }
+.catalog-toggle { display:flex; flex-direction:column; align-items:center; gap:24px; margin-top:58px; } .catalog-toggle > button { border:1px solid $primary; padding:14px 18px; color:$primary; background:transparent; font:600 11px $font-principal; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; transition:.2s; } .catalog-toggle > button:hover { color:$white; background:$primary; } .category-filters { display:flex; max-width:100%; gap:8px; overflow-x:auto; padding-bottom:4px; } .category-filters button { flex:0 0 auto; border:1px solid #d5dde6; padding:9px 13px; color:$text-secondary; background:transparent; font:600 10px $font-principal; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; } .category-filters button.active { color:$white; border-color:$primary; background:$primary; } .featured-label { display:flex; gap:10px; margin-bottom:38px; flex-wrap:wrap; } .featured-label span { border:1px solid rgba($primary,.25); padding:7px 11px; color:$primary; background:rgba($primary,.06); font:600 9px $font-principal; letter-spacing:.08em; text-transform:uppercase; } .catalog-sentinel { width:100%; height:60px; display:flex; align-items:center; justify-content:center; color:$text-secondary; font-size:11px; letter-spacing:.06em; text-transform:uppercase; }
+.image-reference-note { max-width: 580px; margin: -20px 0 34px; color: $text-secondary; font-size: 12px; line-height: 1.55; }
 .product-card {
   width: calc(25% - 1.5%);
   min-width: 210px;
@@ -1005,16 +1073,22 @@ h1 i {
   height: 390px;
   padding: 0;
   border: 0;
-  background: #e8dbd3;
+  background: #f1f4f7;
   position: relative;
   overflow: hidden;
+}
+.product-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transition: opacity 0.38s ease;
 }
 .product-image span {
   position: absolute;
   top: 14px;
   left: 14px;
   padding: 7px 9px;
-  background: #fffaf6;
+  background: $white;
   font: 500 9px $font-principal;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -1025,8 +1099,8 @@ h1 i {
   right: 12px;
   bottom: 12px;
   padding: 7px 9px;
-  color: #fffaf6;
-  background: #a9473f;
+  color: $white;
+  background: $primary;
   font: 600 9px $font-principal;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1046,7 +1120,7 @@ h1 i {
 }
 .product-info p {
   min-height: 42px;
-  color: #706663;
+  color: $text-secondary;
   font-size: 12px;
   line-height: 1.45;
 }
@@ -1079,23 +1153,23 @@ h1 i {
 }
 .product-bottom button:hover {
   color: #fffaf6;
-  background: #211817;
-  border-color: #211817;
+  background: $primary-dark;
+  border-color: $primary-dark;
 }
 .product-bottom .product-purchase {
   width: auto;
   height: auto;
   border-radius: 0;
   padding: 9px 12px;
-  color: #fffaf6;
-  border-color: #211817;
-  background: #211817;
+  color: $white;
+  border-color: $primary;
+  background: $primary;
   font: 600 10px $font-principal;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 .product-bottom .product-purchase:hover {
-  color: #211817;
+  color: $primary;
   background: transparent;
 }
 .skeleton .product-image,
@@ -1260,20 +1334,20 @@ footer .brand {
   width: 100%;
   border: 0;
   padding: 16px 18px;
-  color: #fffaf6;
-  background: #9a4f58;
+  color: $white;
+  background: $primary;
   font: 600 12px $font-principal;
   transition:
     background 0.2s,
     transform 0.2s;
 }
 .primary-button:hover {
-  background: #7f3e46;
+  background: $primary-dark;
   transform: translateY(-1px);
 }
 .primary-button:disabled {
   opacity: 0.65;
-  cursor: wait;
+  cursor: not-allowed;
 }
 .primary-button span {
   font-size: 20px;
@@ -1295,7 +1369,7 @@ footer .brand {
 .empty-state {
   margin: auto;
   text-align: center;
-  color: #706663;
+  color: $text-secondary;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1306,8 +1380,8 @@ footer .brand {
   z-index: 10;
   inset: 50% auto auto 50%;
   transform: translate(-50%, -50%);
-  background: #fffaf6;
-  box-shadow: 0 25px 80px rgba(33, 24, 23, 0.28);
+  background: $white;
+  box-shadow: 0 25px 80px rgba($primary-dark, 0.22);
 }
 .close {
   position: absolute;
@@ -1316,24 +1390,28 @@ footer .brand {
   right: 18px;
 }
 .product-modal {
-  width: min(850px, 92vw);
-  display: flex;
+  width: min(820px, 92vw);
+  max-height: min(680px, calc(100dvh - 104px));
+  display: grid;
+  grid-template-columns: minmax(280px, 44%) minmax(0, 1fr);
+  overflow: hidden;
 }
 .product-modal-image {
-  flex: 0 0 48%;
-  width: 48%;
-  min-height: 510px;
+  width: auto;
+  min-height: 0;
   position: relative;
   overflow: hidden;
 }
 .product-modal-image img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  background: #f1f4f7;
 }
 .product-modal-content {
-  flex: 1;
-  padding: 70px 52px;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 52px 46px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -1389,6 +1467,13 @@ footer .brand {
   color: #706663;
   line-height: 1.6;
 }
+.product-modal-content > p.modal-reference {
+  margin: -12px 0 24px;
+  padding-left: 10px;
+  border-left: 2px solid rgba($primary, .45);
+  color: $text-secondary;
+  font-size: 12px;
+}
 .product-modal strong {
   margin-bottom: 34px;
   font:
@@ -1397,14 +1482,18 @@ footer .brand {
 }
 .checkout-modal {
   width: min(860px, 94vw);
-  max-height: 92vh;
-  overflow: auto;
+  height: min(720px, calc(100dvh - 104px));
+  box-sizing: border-box;
+  overflow: hidden;
   padding: 58px;
   display: flex;
+  align-items: stretch;
   gap: 56px;
 }
 .checkout-intro {
+  flex: 0 0 33%;
   width: 33%;
+  overflow: hidden;
 }
 .checkout-intro > p:not(.eyebrow) {
   margin: 22px 0;
@@ -1439,6 +1528,47 @@ footer .brand {
   color: #706663;
   font-size: 14px;
   line-height: 1.6;
+}
+.delivery-warning-modal {
+  width: min(500px, 92vw);
+  max-height: min(570px, calc(100dvh - 96px));
+  padding: 48px 38px 36px;
+  overflow-y: auto;
+}
+.delivery-warning-modal h2 {
+  margin: 14px 0 20px;
+  font-size: clamp(32px, 5vw, 44px);
+  line-height: .98;
+}
+.delivery-warning-modal > p:not(.eyebrow) {
+  color: $text-secondary;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.delivery-warning-modal .delivery-warning-notice {
+  margin-top: 16px;
+  padding: 13px 14px;
+  border-left: 3px solid $primary;
+  color: $primary-dark;
+  background: $primary-light;
+  font-weight: 600;
+}
+.delivery-warning-actions {
+  display: grid;
+  grid-template-columns: 1fr 1.35fr;
+  gap: 10px;
+  margin-top: 26px;
+}
+.delivery-warning-actions .primary-button {
+  padding: 13px 12px;
+  font-size: 11px;
+}
+.delivery-warning-back {
+  border: 1px solid $primary;
+  padding: 13px 12px;
+  color: $primary;
+  background: transparent;
+  font: 600 11px $font-principal;
 }
 .checkout-whatsapp-modal .priority-warning {
   color: #9a4f58;
@@ -1486,18 +1616,27 @@ footer .brand {
 .checkout-total {
   justify-content: space-between;
   padding-top: 20px;
-  border-top: 1px solid #e1d4ce;
+  border-top: 1px solid #dbe2ea;
   font: 500 18px $font-secondary;
 }
 .checkout-form,
 .payment-step {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   display: flex;
   flex-wrap: wrap;
   align-content: flex-start;
   gap: 16px;
 }
-.checkout-form label {
+.checkout-form {
+  padding: 0 10px 40px 0;
+}
+.checkout-form > label {
   width: calc(50% - 8px);
   display: flex;
   flex-direction: column;
@@ -1509,6 +1648,78 @@ footer .brand {
 }
 .checkout-form .full {
   width: 100%;
+}
+.checkout-form .primary-button.full {
+  margin-top: 14px;
+}
+.delivery-zone {
+  min-width: 0;
+  margin: 4px 0;
+  padding: 18px;
+  border: 1px solid #d5dde6;
+  background: #f8fafc;
+}
+.delivery-zone legend {
+  padding: 0 5px;
+  color: $primary;
+  font: 700 10px $font-principal;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.delivery-zone > p {
+  margin: 0 0 14px;
+  color: $text-secondary;
+  font-size: 12px;
+  line-height: 1.45;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.delivery-zone-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.delivery-zone-options label {
+  min-width: 0;
+  min-height: 54px;
+  padding: 10px 11px;
+  border: 1px solid #d5dde6;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  color: $primary-dark;
+  background: $white;
+  cursor: pointer;
+  font-size: 11px;
+  letter-spacing: 0;
+  line-height: 1.25;
+  text-transform: none;
+  transition: border-color .2s ease, background .2s ease, box-shadow .2s ease, transform .2s ease;
+}
+.delivery-zone-options label:hover {
+  border-color: rgba($primary, .55);
+  box-shadow: 0 5px 14px rgba($primary, .08);
+  transform: translateY(-1px);
+}
+.delivery-zone-options label.selected {
+  border-color: $primary;
+  background: rgba($primary, .06);
+  box-shadow: inset 0 0 0 1px $primary;
+}
+.delivery-zone-options input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: $primary;
+}
+.delivery-zone-options span {
+  font-weight: 600;
+}
+.delivery-zone-options strong {
+  color: $primary;
+  font: 700 11px "DM Mono", monospace;
+  white-space: nowrap;
 }
 .checkout-form .delivery-date span {
   color: #9a4f58;
@@ -1548,13 +1759,13 @@ textarea,
 select {
   width: 100%;
   box-sizing: border-box;
-  border: 1px solid #d9cbc4;
+  border: 1px solid #d5dde6;
   border-radius: 0;
   padding: 11px;
-  color: #211817;
-  background: #fffdfb;
+  color: $primary-dark;
+  background: $white;
   font: 14px $font-principal;
-  outline-color: #9a4f58;
+  outline-color: $primary;
 }
 select:disabled {
   cursor: not-allowed;
@@ -1572,8 +1783,24 @@ textarea {
 .payment-step {
   flex-direction: column;
   gap: 20px;
+  padding: 0 10px 40px 0;
+}
+#payphone-button {
+  width: 100%;
+  min-width: 0;
+  min-height: 280px;
+  box-sizing: border-box;
+  flex: none;
+  overflow: visible;
+}
+#payphone-button :deep(iframe) {
+  display: block;
+  width: 100% !important;
+  max-width: 100% !important;
 }
 .payphone-loading {
+  width: 100%;
+  box-sizing: border-box;
   min-height: 110px;
   padding: 20px;
   border: 1px solid #e1d4ce;
@@ -1634,7 +1861,10 @@ textarea {
     display: none;
   }
   .brand {
-    font-size: 28px;
+    max-width: 120px;
+  }
+  .brand img {
+    width: 100%;
   }
   .cart-trigger {
     min-height: 42px;
@@ -1692,27 +1922,50 @@ textarea {
     gap: 12px;
   }
   .product-modal {
-    max-height: 92vh;
-    overflow: auto;
-    flex-direction: column;
+    width: min(480px, 92vw);
+    max-height: min(620px, calc(100dvh - 86px));
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(180px, 32vh) minmax(0, 1fr);
   }
   .product-modal-image {
     width: 100%;
-    min-height: 250px;
-    max-height: 300px;
+    min-height: 0;
+    max-height: none;
   }
   .product-modal-content {
-    padding: 38px 28px;
+    min-height: 0;
+    padding: 32px 28px;
   }
   .product-specs {
     margin-top: 24px;
   }
   .checkout-modal {
-    padding: 42px 24px;
+    height: auto;
+    max-height: calc(100dvh - 72px);
+    overflow-y: auto;
+    padding: 36px 24px;
     gap: 30px;
+  }
+  .checkout-intro {
+    flex-basis: auto;
+    overflow: visible;
+  }
+  .checkout-form,
+  .payment-step {
+    overflow: visible;
+    padding-right: 0;
+  }
+  .delivery-warning-modal {
+    padding: 42px 24px 26px;
+  }
+  .delivery-warning-actions {
+    grid-template-columns: 1fr;
   }
   .checkout-form {
     width: 100%;
+  }
+  .delivery-zone-options {
+    grid-template-columns: 1fr;
   }
 }
 @media (max-width: 420px) {
@@ -1722,7 +1975,7 @@ textarea {
   .product-image {
     height: 340px;
   }
-  .checkout-form label {
+  .checkout-form > label {
     width: 100%;
   }
 }
