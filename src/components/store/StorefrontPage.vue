@@ -54,6 +54,7 @@ const isCheckoutOpen = ref(false);
 const isCheckoutWhatsAppOpen = ref(false);
 const isCheckoutWhatsAppConfirmationOpen = ref(false);
 const isDeliveryZoneWarningOpen = ref(false);
+const deliveryDetailsConfirmed = ref(false);
 const checkoutStep = ref<"details" | "payment">("details");
 const isSubmitting = ref(false);
 const errorMessage = ref("");
@@ -261,6 +262,7 @@ function confirmDeliveryDetails() {
     errorMessage.value = "Selecciona una zona de entrega para continuar.";
     return;
   }
+  deliveryDetailsConfirmed.value = false;
   isDeliveryZoneWarningOpen.value = true;
 }
 
@@ -796,11 +798,25 @@ watch(activeCategory, async () => {
         <button class="close" type="button" aria-label="Cerrar" @click="isDeliveryZoneWarningOpen = false">×</button>
         <p class="eyebrow">Confirma tu entrega</p>
         <h2 id="delivery-warning-title">Revisa la zona y la dirección.</h2>
-        <p>Tu pedido se enviará a <strong>{{ checkout.zone }}</strong>. Verifica que esta zona coincida con la dirección y el enlace de Google Maps que registraste.</p>
+        <p>Antes de pagar, confirma la zona, dirección y medidas de los arreglos de tu selección.</p>
+        <div class="delivery-confirmation-summary">
+          <p><strong>Zona:</strong> {{ checkout.zone }}</p>
+          <p><strong>Dirección:</strong> {{ checkout.address }}</p>
+          <div>
+            <strong>Medidas de tu selección</strong>
+            <ul>
+              <li v-for="item in cart" :key="item._id"><span>{{ item.name }}</span><b>{{ item.dimensions }}</b></li>
+            </ul>
+          </div>
+        </div>
         <p class="delivery-warning-notice">Si seleccionas una zona incorrecta para acceder a una tarifa menor, Bruval no asegura reembolso ni cobertura de la diferencia de envío.</p>
+        <label class="delivery-confirmation-check" :class="{ checked: deliveryDetailsConfirmed }">
+          <input v-model="deliveryDetailsConfirmed" type="checkbox" />
+          <span><strong>Estoy de acuerdo con la dirección, zona y medidas indicadas.</strong><small>Confirmo estos datos para evitar malentendidos en la preparación y entrega.</small></span>
+        </label>
         <div class="delivery-warning-actions">
           <button class="delivery-warning-back" type="button" @click="isDeliveryZoneWarningOpen = false">Revisar mis datos</button>
-          <button class="primary-button" type="button" @click="isDeliveryZoneWarningOpen = false; beginPayment()">Confirmo y continúo al pago <span>→</span></button>
+          <button class="primary-button" :disabled="!deliveryDetailsConfirmed" type="button" @click="isDeliveryZoneWarningOpen = false; beginPayment()">Confirmo y continúo al pago <span>→</span></button>
         </div>
       </aside>
     </Transition>
@@ -1553,6 +1569,38 @@ footer .brand {
   font-size: 14px;
   line-height: 1.6;
 }
+.delivery-confirmation-summary {
+  margin: 18px 0;
+  padding: 14px;
+  border: 1px solid #d5dde6;
+  background: #f8fafc;
+  color: $primary-dark;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.delivery-confirmation-summary > p {
+  margin: 0 0 7px;
+}
+.delivery-confirmation-summary > div {
+  margin-top: 11px;
+  padding-top: 11px;
+  border-top: 1px solid #d5dde6;
+}
+.delivery-confirmation-summary ul {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.delivery-confirmation-summary li {
+  padding: 5px 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.delivery-confirmation-summary li b {
+  color: $primary;
+  white-space: nowrap;
+}
 .delivery-warning-modal .delivery-warning-notice {
   margin-top: 16px;
   padding: 13px 14px;
@@ -1560,6 +1608,58 @@ footer .brand {
   color: $primary-dark;
   background: $primary-light;
   font-weight: 600;
+}
+.delivery-confirmation-check {
+  margin-top: 16px;
+  padding: 13px;
+  border: 1px solid #d5dde6;
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  color: $primary-dark;
+  background: $white;
+  cursor: pointer;
+  transition: border-color .2s ease, background .2s ease;
+}
+.delivery-confirmation-check.checked {
+  border-color: $primary;
+  background: rgba($primary, .06);
+}
+.delivery-confirmation-check input {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  margin: 1px 0 0;
+  border: 1px solid $primary;
+  display: grid;
+  place-content: center;
+  background: $white;
+}
+.delivery-confirmation-check input::before {
+  content: "✓";
+  color: $white;
+  font-size: 14px;
+  font-weight: 700;
+  transform: scale(0);
+  transition: transform .15s ease;
+}
+.delivery-confirmation-check input:checked {
+  background: $primary;
+}
+.delivery-confirmation-check input:checked::before {
+  transform: scale(1);
+}
+.delivery-confirmation-check span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.delivery-confirmation-check small {
+  color: $text-secondary;
+  font-size: 11px;
 }
 .delivery-warning-actions {
   display: grid;
