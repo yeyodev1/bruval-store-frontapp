@@ -45,6 +45,8 @@ const selected = ref<Product | null>(null);
 const loadedImages = ref(new Set<string>());
 const showFullCatalog = ref(false);
 const activeCategory = ref("Todos");
+const activeSort = ref("quality");
+const searchQuery = ref("");
 const catalogPage = ref(1);
 const hasMore = ref(false);
 const isLoadingMore = ref(false);
@@ -175,7 +177,9 @@ async function loadMore() {
   try {
     const nextPage = catalogPage.value + 1;
     const category = activeCategory.value !== "Todos" ? activeCategory.value : undefined;
-    const { data } = await storeApi.products(offerId, nextPage, 5, category);
+    const sort = activeSort.value;
+    const search = searchQuery.value.trim() || undefined;
+    const { data } = await storeApi.products(offerId, nextPage, 5, category, sort, search);
     const currentIds = new Set(products.value.map((product) => product._id));
     products.value = [...products.value, ...data.products.filter((product) => !currentIds.has(product._id))];
     catalogPage.value = nextPage;
@@ -373,18 +377,53 @@ watch(isOfferActive, (active, previous) => {
 watch(availableDeliverySlots, (slots) => {
   if (!slots.includes(checkout.value.timeSlot)) checkout.value.timeSlot = slots[0] || "";
 });
-watch(activeCategory, async () => {
-  if (!showFullCatalog.value) return;
+async function refreshFilteredProducts() {
   isLoadingMore.value = true;
   try {
     const category = activeCategory.value !== "Todos" ? activeCategory.value : undefined;
-    const { data } = await storeApi.products(offerId, 1, 5, category);
+    const sort = activeSort.value;
+    const search = searchQuery.value.trim() || undefined;
+    const { data } = await storeApi.products(offerId, 1, 5, category, sort, search);
     products.value = data.products;
     catalogPage.value = 1;
     hasMore.value = data.pagination?.hasMore ?? false;
     catalogTotal.value = data.pagination?.total ?? 0;
+  } catch (err: any) {
+    console.error("Error refreshing products:", err);
   } finally {
     isLoadingMore.value = false;
+  }
+}
+
+watch(activeCategory, async () => {
+  if (!showFullCatalog.value) return;
+  await refreshFilteredProducts();
+});
+
+watch(activeSort, async () => {
+  if (!showFullCatalog.value) {
+    showFullCatalog.value = true;
+  } else {
+    await refreshFilteredProducts();
+  }
+});
+
+let searchDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+watch(searchQuery, () => {
+  clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(async () => {
+    if (searchQuery.value.trim() && !showFullCatalog.value) {
+      showFullCatalog.value = true;
+    }
+    if (showFullCatalog.value) {
+      await refreshFilteredProducts();
+    }
+  }, 300);
+});
+
+watch(showFullCatalog, async (val) => {
+  if (val) {
+    await refreshFilteredProducts();
   }
 });
 </script>
@@ -443,10 +482,31 @@ watch(activeCategory, async () => {
       <p v-if="errorMessage && !isCheckoutOpen" class="error">
         {{ errorMessage }}
       </p>
+      <div class="catalog-search">
+        <div class="search-wrapper">
+          <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            v-model="searchQuery"
+            type="search"
+            placeholder="Buscar por nombre, código o colección..."
+            class="search-input"
+            aria-label="Buscar productos"
+          />
+          <button v-if="searchQuery" type="button" class="clear-search" @click="searchQuery = ''">×</button>
+        </div>
+      </div>
       <div class="featured-label">
-        <span>Ordenados por calidad</span>
-        <span>Primero los destacados</span>
-        <span>De la temporada</span>
+        <button
+          v-for="sortOption in [{ id: 'quality', label: 'Ordenados por calidad' }, { id: 'featured', label: 'Primero los destacados' }, { id: 'seasonal', label: 'De la temporada' }]"
+          :key="sortOption.id"
+          type="button"
+          :class="{ active: activeSort === sortOption.id }"
+          @click="activeSort = sortOption.id"
+        >
+          {{ sortOption.label }}
+        </button>
       </div>
       <div class="product-list">
         <template v-if="isLoading"
@@ -518,6 +578,14 @@ watch(activeCategory, async () => {
       <a class="brand" href="#inicio" aria-label="Bruval, inicio"><img src="/logo-bruval.png" alt="Bruval" /></a>
       <p>Guayaquil, Ecuador · Todos los días</p>
       <p>© 2026 Bruval Flores</p>
+    </footer>
+    <footer class="footer-credits">
+      <p>
+        Hecho por
+        <a href="https://instagram.com/yeyo.dev?igsh=MTlqM2lmNGRoN3RnMw==" target="_blank" rel="noopener noreferrer">yeyo</a>
+        y
+        <a href="https://www.instagram.com/heyitsandres_dev?igsh=MXhnMGpxd2w4NGxxag%3D%3D" target="_blank" rel="noopener noreferrer">Kankox</a>
+      </p>
     </footer>
 
     <Transition name="fade"
@@ -1074,7 +1142,7 @@ h1 i {
   flex-wrap: wrap;
   gap: 48px 2%;
 }
-.catalog-toggle { display:flex; flex-direction:column; align-items:center; gap:24px; margin-top:58px; } .catalog-toggle > button { border:1px solid $primary; padding:14px 18px; color:$primary; background:transparent; font:600 11px $font-principal; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; transition:.2s; } .catalog-toggle > button:hover { color:$white; background:$primary; } .category-filters { display:flex; max-width:100%; gap:8px; overflow-x:auto; padding-bottom:4px; } .category-filters button { flex:0 0 auto; border:1px solid #d5dde6; padding:9px 13px; color:$text-secondary; background:transparent; font:600 10px $font-principal; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; } .category-filters button.active { color:$white; border-color:$primary; background:$primary; } .featured-label { display:flex; gap:10px; margin-bottom:38px; flex-wrap:wrap; } .featured-label span { border:1px solid rgba($primary,.25); padding:7px 11px; color:$primary; background:rgba($primary,.06); font:600 9px $font-principal; letter-spacing:.08em; text-transform:uppercase; } .catalog-sentinel { width:100%; height:60px; display:flex; align-items:center; justify-content:center; color:$text-secondary; font-size:11px; letter-spacing:.06em; text-transform:uppercase; }
+.catalog-toggle { display:flex; flex-direction:column; align-items:center; gap:24px; margin-top:58px; } .catalog-toggle > button { border:1px solid $primary; padding:14px 18px; color:$primary; background:transparent; font:600 11px $font-principal; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; transition:.2s; } .catalog-toggle > button:hover { color:$white; background:$primary; } .category-filters { display:flex; max-width:100%; gap:8px; overflow-x:auto; padding-bottom:4px; } .category-filters button { flex:0 0 auto; border:1px solid #d5dde6; padding:9px 13px; color:$text-secondary; background:transparent; font:600 10px $font-principal; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; } .category-filters button.active { color:$white; border-color:$primary; background:$primary; } .catalog-search { margin-bottom: 20px; width: 100%; max-width: 480px; } .search-wrapper { position: relative; display: flex; align-items: center; } .search-input { width: 100%; padding: 12px 40px 12px 42px; border: 1px solid #d9c8c0; border-radius: 6px; font: 14px $font-principal; color: #211817; background: #fffdfb; transition: border-color 0.2s, box-shadow 0.2s; outline: none; &:focus { border-color: $primary; box-shadow: 0 0 0 3px rgba($primary, 0.1); } } .search-icon { position: absolute; left: 14px; width: 18px; height: 18px; color: #9c8c86; pointer-events: none; } .clear-search { position: absolute; right: 12px; background: none; border: 0; color: #9c8c86; font-size: 18px; font-weight: 500; cursor: pointer; padding: 4px; line-height: 1; &:hover { color: $primary; } } .featured-label { display:flex; gap:10px; margin-bottom:38px; flex-wrap:wrap; } .featured-label button { border:1px solid rgba($primary,.25); padding:8px 14px; color:$primary; background:rgba($primary,.04); font:600 10px $font-principal; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; border-radius:4px; transition:all 0.2s ease; } .featured-label button:hover { background:rgba($primary, 0.08); border-color:$primary; } .featured-label button.active { color:$white; background:$primary; border-color:$primary; box-shadow:0 2px 8px rgba($primary, 0.2); } .catalog-sentinel { width:100%; height:60px; display:flex; align-items:center; justify-content:center; color:$text-secondary; font-size:11px; letter-spacing:.06em; text-transform:uppercase; }
 .product-card {
   width: calc(25% - 1.5%);
   min-width: 210px;
@@ -2086,5 +2154,24 @@ textarea {
   .checkout-form > label {
     width: 100%;
   }
+}
+.footer-credits {
+  text-align: center;
+  padding: 16px 5vw 28px;
+  font: 500 10px/1.4 $font-principal;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: #9c8c86;
+  border-top: 1px solid rgba($primary, 0.08);
+  margin-top: -12px;
+}
+.footer-credits a {
+  color: $primary;
+  text-decoration: none;
+  font-weight: 600;
+  transition: opacity 0.2s;
+}
+.footer-credits a:hover {
+  opacity: 0.8;
 }
 </style>

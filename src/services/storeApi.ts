@@ -30,9 +30,11 @@ export interface CheckoutPayload {
 }
 
 class StoreApi extends APIBase {
-  products(offerId: string, page = 1, limit = 5, category?: string) {
+  products(offerId: string, page = 1, limit = 5, category?: string, sort?: string, search?: string) {
     let url = `products?offerId=${encodeURIComponent(offerId)}&page=${page}&limit=${limit}`
     if (category) url += `&category=${encodeURIComponent(category)}`
+    if (sort) url += `&sort=${encodeURIComponent(sort)}`
+    if (search) url += `&search=${encodeURIComponent(search)}`
     return this.get<{ products: Product[]; offer: { active: boolean; expiresAt: string }; pagination: { page: number; limit: number; total: number; totalPages: number; hasMore: boolean } }>(url)
   }
 
