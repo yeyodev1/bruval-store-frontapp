@@ -43,8 +43,25 @@ onMounted(async () => {
     const { data } = await storeApi.confirmPayphonePayment(id, clientTransactionId)
     orderNumber.value = data.orderNumber
     order.value = data.order
-    state.value = data.approved ? 'approved' : 'failed'
-    message.value = data.approved ? 'Tu pago fue aprobado. Estamos preparando algo muy especial.' : data.message
+    if (data.approved) {
+      state.value = 'approved'
+      message.value = 'Tu pago fue aprobado. Estamos preparando algo muy especial.'
+
+      // Track Purchase in Meta Pixel
+      if (typeof (window as any).fbq === 'function' && data.order) {
+        const itemIds = data.order.items.map((item: any) => item.sku || item.name);
+        (window as any).fbq('track', 'Purchase', {
+          content_ids: itemIds,
+          content_type: 'product',
+          value: data.order.total,
+          currency: 'USD',
+          num_items: data.order.items.reduce((sum: number, item: any) => sum + item.quantity, 0)
+        });
+      }
+    } else {
+      state.value = 'failed'
+      message.value = data.message || 'El pago no fue aprobado.'
+    }
   } catch (error: any) {
     state.value = 'failed'
     message.value = error.message || 'No pudimos confirmar el pago. Escríbenos para ayudarte.'

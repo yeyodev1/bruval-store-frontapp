@@ -83,6 +83,11 @@ router.afterEach((to) => {
 
   const robots = document.querySelector<HTMLMetaElement>('meta[name="robots"]')
   if (robots) robots.content = to.meta.noindex ? 'noindex, nofollow' : 'index, follow, max-image-preview:large'
+
+  // Track page view in Meta Pixel
+  if (typeof (window as any).fbq === 'function') {
+    (window as any).fbq('track', 'PageView');
+  }
 })
 
 export default router

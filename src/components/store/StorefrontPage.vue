@@ -201,6 +201,17 @@ function addToCart(product: Product) {
   else cart.value.push({ ...product, quantity: 1 });
   selected.value = null;
   isCartOpen.value = true;
+
+  // Track AddToCart in Meta Pixel
+  if (typeof (window as any).fbq === "function") {
+    (window as any).fbq("track", "AddToCart", {
+      content_name: product.name,
+      content_ids: [product.sku],
+      content_type: "product",
+      value: product.price,
+      currency: "USD",
+    });
+  }
 }
 
 function changeQuantity(id: string, amount: number) {
@@ -216,11 +227,37 @@ function openCheckout() {
   isCheckoutOpen.value = true;
   checkoutStep.value = "details";
   errorMessage.value = "";
+
+  // Track InitiateCheckout in Meta Pixel
+  if (typeof (window as any).fbq === "function") {
+    const contents = cart.value.map((item) => ({
+      id: item.sku,
+      quantity: item.quantity,
+      item_price: item.price,
+    }));
+    (window as any).fbq("track", "InitiateCheckout", {
+      contents,
+      content_type: "product",
+      value: total.value,
+      currency: "USD",
+    });
+  }
 }
 
 function openCheckoutWhatsApp() {
   openCheckout();
   isCheckoutWhatsAppOpen.value = true;
+}
+
+function trackWhatsAppCheckout() {
+  isCheckoutWhatsAppConfirmationOpen.value = false;
+  if (typeof (window as any).fbq === "function") {
+    (window as any).fbq("track", "Lead", {
+      content_name: "WhatsApp Checkout",
+      value: total.value,
+      currency: "USD",
+    });
+  }
 }
 
 async function beginPayment() {
@@ -382,6 +419,19 @@ watch(isOfferActive, (active, previous) => {
 });
 watch(availableDeliverySlots, (slots) => {
   if (!slots.includes(checkout.value.timeSlot)) checkout.value.timeSlot = slots[0] || "";
+});
+watch(selected, (product) => {
+  if (product) {
+    if (typeof (window as any).fbq === "function") {
+      (window as any).fbq("track", "ViewContent", {
+        content_name: product.name,
+        content_ids: [product.sku],
+        content_type: "product",
+        value: product.price,
+        currency: "USD",
+      });
+    }
+  }
 });
 async function refreshFilteredProducts() {
   isLoadingMore.value = true;
@@ -870,7 +920,7 @@ watch(showFullCatalog, async (val) => {
         <p>Al continuar por WhatsApp, tu pedido seguirá sujeto a disponibilidad y no tendrá la confirmación ni la reserva inmediata del pago por web.</p>
         <div class="whatsapp-confirmation-actions">
           <button type="button" @click="isCheckoutWhatsAppConfirmationOpen = false">Volver al pago web</button>
-          <a :href="checkoutWhatsApp" target="_blank" rel="noopener" @click="isCheckoutWhatsAppConfirmationOpen = false">Sí, continuar por WhatsApp →</a>
+          <a :href="checkoutWhatsApp" target="_blank" rel="noopener" @click="trackWhatsAppCheckout">Sí, continuar por WhatsApp →</a>
         </div>
       </aside>
     </Transition>
