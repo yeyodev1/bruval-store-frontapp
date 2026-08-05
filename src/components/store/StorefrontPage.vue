@@ -613,7 +613,7 @@ watch(showFullCatalog, async (val) => {
         <div class="panel-head">
           <div>
             <p class="eyebrow">Tu selección</p>
-            <h2>El carrito</h2>
+            <h2>Carrito</h2>
           </div>
           <button type="button" @click="isCartOpen = false">×</button>
         </div>
@@ -1212,7 +1212,7 @@ h1 i {
 }
 .modal-exclusive {
   position: static;
-  margin: 18px 0 -8px;
+  margin: 18px 0 12px;
   display: inline-block;
 }
 .product-info {
