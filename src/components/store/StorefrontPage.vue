@@ -101,7 +101,13 @@ const total = computed(() => subtotal.value + deliveryFee.value);
 const formatPrice = (value: number) => `$${value.toFixed(2)}`;
 function productImage(url: string, width: number, height: number) {
   if (!url.includes("res.cloudinary.com") || !url.includes("/upload/")) return url;
-  return url.replace("/upload/", `/upload/c_pad,b_auto,f_auto,q_auto,w_${width},h_${height}/`);
+  const lowerUrl = url.toLowerCase();
+  const hasBlackBg = lowerUrl.includes("rp105") || lowerUrl.includes("rp110") || lowerUrl.includes("rp115") || lowerUrl.includes("rp120") || lowerUrl.includes("rp125") ||
+                     lowerUrl.includes("rp015") || lowerUrl.includes("rp030") || lowerUrl.includes("rp020") || lowerUrl.includes("rp025") ||
+                     lowerUrl.includes("/021") || lowerUrl.includes("/024") || lowerUrl.includes("/101") || lowerUrl.includes("/106") || lowerUrl.includes("/108") ||
+                     lowerUrl.includes("/071") || lowerUrl.includes("/105") || lowerUrl.includes("/115") || lowerUrl.includes("/158");
+  const effect = hasBlackBg ? ",e_make_transparent" : "";
+  return url.replace("/upload/", `/upload/c_pad,b_auto${effect},f_auto,q_auto,w_${width},h_${height}/`);
 }
 const categories = ["Todos", "Preservados", "Naturales"];
 const homeProducts = computed(() => products.value.slice(0, 5));
@@ -687,7 +693,7 @@ watch(showFullCatalog, async (val) => {
             type="button"
             @click="addToCart(selected)"
           >
-            Agregar a la bolsa <span>→</span>
+            Comprar ahora <span>→</span>
           </button>
         </div>
       </section></Transition
@@ -1191,8 +1197,8 @@ h1 i {
   right: 12px;
   bottom: 12px;
   padding: 7px 9px;
-  color: $white;
-  background: $primary;
+  color: #ffffff !important;
+  background: $primary !important;
   font: 600 9px $font-principal;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1538,7 +1544,7 @@ footer .brand {
 }
 .product-specs dt {
   margin-bottom: 5px;
-  color: #9a7770;
+  color: #634843;
   font: 600 10px $font-principal;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -1556,7 +1562,7 @@ footer .brand {
 }
 .product-modal-content > p:not(.eyebrow) {
   margin: 28px 0;
-  color: #706663;
+  color: #483f3d;
   line-height: 1.6;
 }
 .product-modal-content > p.modal-reference {
