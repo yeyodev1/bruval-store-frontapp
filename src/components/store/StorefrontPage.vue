@@ -443,7 +443,7 @@ watch(showFullCatalog, async (val) => {
         <a class="nav-link" href="/pedido">¿Ya tienes un pedido?</a>
         <p class="nav-note">Flores para sentir cerca</p>
         <button class="cart-trigger" type="button" @click="isCartOpen = true">
-          <span>Bolsa</span>
+          <span>Carrito</span>
           <strong v-if="cartCount">{{ formatPrice(total) }}</strong>
           <b>{{ cartCount }}</b>
         </button>
@@ -613,7 +613,7 @@ watch(showFullCatalog, async (val) => {
         <div class="panel-head">
           <div>
             <p class="eyebrow">Tu selección</p>
-            <h2>La bolsa</h2>
+            <h2>El carrito</h2>
           </div>
           <button type="button" @click="isCartOpen = false">×</button>
         </div>
@@ -636,7 +636,7 @@ watch(showFullCatalog, async (val) => {
           </div>
         </div>
         <div v-else class="empty-state">
-          <p>Tu bolsa está esperando algo bonito.</p>
+          <p>Tu carrito está esperando algo bonito.</p>
           <button type="button" class="text-link" @click="isCartOpen = false">
             Explorar flores
           </button>
@@ -668,33 +668,40 @@ watch(showFullCatalog, async (val) => {
           <img :src="productImage(selected.image, 900, 1100)" :alt="selected.name" @load="markImageLoaded(selected.image)" />
         </div>
         <div class="product-modal-content">
-          <p class="eyebrow">{{ selected.palette }}</p>
-          <p v-if="selected.webExclusive" class="web-exclusive modal-exclusive">Oferta exclusiva web · {{ selected.discountPercentage }}% OFF</p>
-          <h2>{{ selected.name }}</h2>
-          <dl class="product-specs">
-            <div>
-              <dt>Medidas</dt>
-              <dd>{{ selected.dimensions }}</dd>
+          <div class="product-modal-body">
+            <p class="eyebrow">{{ selected.palette }}</p>
+            <p v-if="selected.webExclusive" class="web-exclusive modal-exclusive">Oferta exclusiva web · {{ selected.discountPercentage }}% OFF</p>
+            <h2>{{ selected.name }}</h2>
+            <dl class="product-specs">
+              <div>
+                <dt>Medidas</dt>
+                <dd>{{ selected.dimensions }}</dd>
+              </div>
+              <div>
+                <dt>Colección</dt>
+                <dd>{{ selected.collection }}</dd>
+              </div>
+              <div>
+                <dt>Código</dt>
+                <dd>{{ selected.sku }}</dd>
+              </div>
+            </dl>
+            <p>{{ selected.description }}</p>
+            <p class="image-reference-note modal-reference">Imagen referencial. La composición puede variar según la disponibilidad de flores.</p>
+          </div>
+          <div class="product-modal-footer">
+            <div class="product-modal-price-row">
+              <span>Precio online</span>
+              <strong>{{ formatPrice(selected.price) }}</strong>
             </div>
-            <div>
-              <dt>Colección</dt>
-              <dd>{{ selected.collection }}</dd>
-            </div>
-            <div>
-              <dt>Código</dt>
-              <dd>{{ selected.sku }}</dd>
-            </div>
-          </dl>
-          <p>{{ selected.description }}</p>
-          <p class="image-reference-note modal-reference">Imagen referencial. La composición puede variar según la disponibilidad de flores.</p>
-          <strong>{{ formatPrice(selected.price) }}</strong
-          ><button
-            class="primary-button"
-            type="button"
-            @click="addToCart(selected)"
-          >
-            Comprar ahora <span>→</span>
-          </button>
+            <button
+              class="primary-button"
+              type="button"
+              @click="addToCart(selected)"
+            >
+              Comprar ahora <span>→</span>
+            </button>
+          </div>
         </div>
       </section></Transition
     >
@@ -1508,11 +1515,11 @@ footer .brand {
 }
 .product-modal-content {
   min-width: 0;
-  overflow-y: auto;
   padding: 52px 46px;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
+  height: 100%;
 }
 .product-modal h2,
 .checkout-modal h2 {
@@ -1572,11 +1579,35 @@ footer .brand {
   color: $text-secondary;
   font-size: 12px;
 }
-.product-modal strong {
-  margin-bottom: 34px;
-  font:
-    16px "DM Mono",
-    monospace;
+.product-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 12px;
+  margin-bottom: 24px;
+}
+.product-modal-footer {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 24px;
+  border-top: 1px solid #e4d9d3;
+}
+.product-modal-price-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.product-modal-price-row span {
+  font: 500 10px $font-principal;
+  color: #634843;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.product-modal-price-row strong {
+  margin-bottom: 0;
+  font: 600 24px "DM Mono", monospace;
+  color: #a9473f;
 }
 .checkout-modal {
   width: min(860px, 94vw);
