@@ -23,11 +23,9 @@
     "vite": "^7.0.0",
     "vue-tsc": "^3.1.0"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "@parcel/watcher",
-      "unrs-resolver"
-    ]
-  }
+  "onlyBuiltDependencies": [
+    "esbuild",
+    "@parcel/watcher",
+    "unrs-resolver"
+  ]
 }
