@@ -122,10 +122,19 @@ function productScaleClass(item: Product) {
   if (sku === 'RP75' || name.includes('tiny girasol')) {
     return 'scale-tiny';
   }
-  if (sku === 'RP70' || name.includes('small girasol niños') || name.includes('girasol niños') || name.includes('girasol ninos')) {
+  if (sku === 'RP70' || sku === 'RP100' || name.includes('small girasol niños') || name.includes('girasol niños') || name.includes('girasol ninos')) {
     return 'scale-small';
   }
-  if (sku === 'RP60' || name.includes('cúpula mediana girasol') || name.includes('cupula mediana girasol')) {
+  if (sku === 'RP125') {
+    return 'scale-tiny';
+  }
+  if (sku === 'RP115' || sku === 'RP120' || sku === 'RP030' || sku === 'RP020') {
+    return 'scale-medium-large';
+  }
+  if (sku === 'RP95') {
+    return 'scale-xl';
+  }
+  if (sku === 'RP60' || sku === 'RP135' || sku === 'RP1055' || sku === 'RP150' || name.includes('cúpula mediana girasol') || name.includes('cupula mediana girasol') || name.includes('cúpula xl deluxe') || name.includes('cupula xl deluxe')) {
     return 'scale-large';
   }
   return '';
@@ -759,7 +768,10 @@ watch(showFullCatalog, async (val) => {
           <div class="product-modal-footer">
             <div class="product-modal-price-row">
               <span>Precio online</span>
-              <strong>{{ formatPrice(selected.price) }}</strong>
+              <div class="product-price">
+                <del v-if="selected.regularPrice">{{ formatPrice(selected.regularPrice) }}</del>
+                <strong>{{ formatPrice(selected.price) }}</strong>
+              </div>
             </div>
             <button
               class="primary-button"
@@ -1245,16 +1257,25 @@ h1 i {
   transition: opacity 0.38s ease, transform 0.38s ease;
 }
 .product-image.scale-tiny img {
-  transform: scale(0.68);
+  transform: scale(0.62);
 }
 .product-image.scale-mini img {
   transform: scale(0.58);
 }
 .product-image.scale-small img {
-  transform: scale(0.80);
+  transform: scale(0.74);
+}
+.product-image.scale-medium img {
+  transform: scale(0.85);
+}
+.product-image.scale-medium-large img {
+  transform: scale(1.28);
 }
 .product-image.scale-large img {
   transform: scale(1.42);
+}
+.product-image.scale-xl img {
+  transform: scale(1.75);
 }
 .product-image span {
   position: absolute;
@@ -1315,15 +1336,16 @@ h1 i {
   display: flex;
   align-items: baseline;
   gap: 8px;
+  flex-wrap: wrap;
 }
 .product-price del {
   color: #9c8c86;
-  font: 10px "DM Mono", monospace;
+  font: 500 14px "DM Mono", monospace;
+  text-decoration: line-through;
 }
 .product-bottom strong {
-  font:
-    500 12px "DM Mono",
-    monospace;
+  font: 700 18px "DM Mono", monospace;
+  color: #211817;
 }
 .product-bottom button {
   width: 29px;
@@ -1594,16 +1616,25 @@ footer .brand {
   transition: transform 0.38s ease;
 }
 .product-modal-image.scale-tiny img {
-  transform: scale(0.70);
+  transform: scale(0.62);
 }
 .product-modal-image.scale-mini img {
   transform: scale(0.60);
 }
 .product-modal-image.scale-small img {
-  transform: scale(0.82);
+  transform: scale(0.74);
+}
+.product-modal-image.scale-medium img {
+  transform: scale(0.85);
+}
+.product-modal-image.scale-medium-large img {
+  transform: scale(1.28);
 }
 .product-modal-image.scale-large img {
   transform: scale(1.42);
+}
+.product-modal-image.scale-xl img {
+  transform: scale(1.75);
 }
 .product-modal-content {
   min-width: 0;
