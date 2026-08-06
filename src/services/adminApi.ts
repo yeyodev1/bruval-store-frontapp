@@ -22,6 +22,7 @@ export interface AdminProduct {
   dimensions: string
   image: string
   price: number
+  regularPrice?: number
   available: boolean
   featured: boolean
 }

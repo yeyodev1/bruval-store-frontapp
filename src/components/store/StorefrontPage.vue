@@ -113,6 +113,23 @@ const categories = ["Todos", "Preservados", "Naturales"];
 const homeProducts = computed(() => products.value.slice(0, 5));
 const displayedProducts = computed(() => showFullCatalog.value ? activeCategory.value === "Todos" ? products.value : products.value.filter((product) => product.categories?.includes(activeCategory.value)) : homeProducts.value);
 
+function productScaleClass(item: Product) {
+  const sku = (item.sku || '').toUpperCase();
+  const name = (item.name || '').toLowerCase();
+  if (sku === 'RP80' || name.includes('ángel girasol') || name.includes('angel girasol')) {
+    return 'scale-mini';
+  }
+  if (sku === 'RP75' || name.includes('tiny girasol')) {
+    return 'scale-tiny';
+  }
+  if (sku === 'RP70' || name.includes('small girasol niños') || name.includes('girasol niños') || name.includes('girasol ninos')) {
+    return 'scale-small';
+  }
+  if (sku === 'RP60' || name.includes('cúpula mediana girasol') || name.includes('cupula mediana girasol')) {
+    return 'scale-large';
+  }
+  return '';
+}
 function markImageLoaded(src: string) {
   loadedImages.value = new Set(loadedImages.value).add(src);
 }
@@ -582,7 +599,7 @@ watch(showFullCatalog, async (val) => {
         >
           <button
             class="product-image image-loading"
-            :class="{ 'image-ready': loadedImages.has(product.image) }"
+            :class="[{ 'image-ready': loadedImages.has(product.image) }, productScaleClass(product)]"
             type="button"
             @click="selected = product"
           >
@@ -714,7 +731,7 @@ watch(showFullCatalog, async (val) => {
     <Transition name="modal"
       ><section v-if="selected" class="modal product-modal">
         <button class="close" type="button" @click="selected = null">×</button
-        ><div class="product-modal-image image-loading" :class="{ 'image-ready': loadedImages.has(selected.image) }">
+        ><div class="product-modal-image image-loading" :class="[{ 'image-ready': loadedImages.has(selected.image) }, productScaleClass(selected)]">
           <img :src="productImage(selected.image, 900, 1100)" :alt="selected.name" @load="markImageLoaded(selected.image)" />
         </div>
         <div class="product-modal-content">
@@ -1225,7 +1242,19 @@ h1 i {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  transition: opacity 0.38s ease;
+  transition: opacity 0.38s ease, transform 0.38s ease;
+}
+.product-image.scale-tiny img {
+  transform: scale(0.68);
+}
+.product-image.scale-mini img {
+  transform: scale(0.58);
+}
+.product-image.scale-small img {
+  transform: scale(0.80);
+}
+.product-image.scale-large img {
+  transform: scale(1.42);
 }
 .product-image span {
   position: absolute;
@@ -1562,6 +1591,19 @@ footer .brand {
   height: 100%;
   object-fit: contain;
   background: #f1f4f7;
+  transition: transform 0.38s ease;
+}
+.product-modal-image.scale-tiny img {
+  transform: scale(0.70);
+}
+.product-modal-image.scale-mini img {
+  transform: scale(0.60);
+}
+.product-modal-image.scale-small img {
+  transform: scale(0.82);
+}
+.product-modal-image.scale-large img {
+  transform: scale(1.42);
 }
 .product-modal-content {
   min-width: 0;
