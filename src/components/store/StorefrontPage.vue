@@ -74,22 +74,24 @@ const cartCount = computed(() =>
 const subtotal = computed(() =>
   cart.value.reduce((total, item) => total + item.price * item.quantity, 0),
 );
+/** Envío gratis en todas las zonas: la zona solo define la ruta de entrega. */
+const DELIVERY_FEE = 0;
 const deliveryZones = [
-  { name: "Zona Centro", fee: 8 },
-  { name: "Zona Norte", fee: 8 },
-  { name: "Zona Sur", fee: 10 },
-  { name: "Zona Sur Sector Puerto", fee: 13 },
-  { name: "Zona Durán Centro", fee: 10 },
-  { name: "Vía Durán Tambo", fee: 12 },
-  { name: "Vía Samborondón (hasta el Km 5)", fee: 10 },
-  { name: "Vía Samborondón (desde Km 5 hasta Estancia del Río)", fee: 12 },
-  { name: "Vía a Daule (hasta el Km 10)", fee: 10 },
-  { name: "Vía a Daule (desde Km 10 hasta Km 16)", fee: 13 },
-  { name: "Vía Daule (hasta Unilever)", fee: 18 },
-  { name: "Vía Salitre", fee: 13 },
-  { name: "Vía La Costa Chongón", fee: 18 },
-  { name: "La Aurora (La Joya, Villa Club, Villas del Rey)", fee: 12 },
-  { name: "Sector Centro Comercial El Dorado", fee: 13 },
+  { name: "Zona Centro", fee: DELIVERY_FEE },
+  { name: "Zona Norte", fee: DELIVERY_FEE },
+  { name: "Zona Sur", fee: DELIVERY_FEE },
+  { name: "Zona Sur Sector Puerto", fee: DELIVERY_FEE },
+  { name: "Zona Durán Centro", fee: DELIVERY_FEE },
+  { name: "Vía Durán Tambo", fee: DELIVERY_FEE },
+  { name: "Vía Samborondón (hasta el Km 5)", fee: DELIVERY_FEE },
+  { name: "Vía Samborondón (desde Km 5 hasta Estancia del Río)", fee: DELIVERY_FEE },
+  { name: "Vía a Daule (hasta el Km 10)", fee: DELIVERY_FEE },
+  { name: "Vía a Daule (desde Km 10 hasta Km 16)", fee: DELIVERY_FEE },
+  { name: "Vía Daule (hasta Unilever)", fee: DELIVERY_FEE },
+  { name: "Vía Salitre", fee: DELIVERY_FEE },
+  { name: "Vía La Costa Chongón", fee: DELIVERY_FEE },
+  { name: "La Aurora (La Joya, Villa Club, Villas del Rey)", fee: DELIVERY_FEE },
+  { name: "Sector Centro Comercial El Dorado", fee: DELIVERY_FEE },
 ];
 const selectedDeliveryZone = computed(() =>
   deliveryZones.find((zone) => zone.name === checkout.value.zone),
@@ -110,7 +112,9 @@ function productImage(url: string, width: number, height: number) {
   return url.replace("/upload/", `/upload/c_pad,b_auto${effect},f_auto,q_auto,w_${width},h_${height}/`);
 }
 const categories = ["Todos", "Preservados", "Naturales"];
-const homeProducts = computed(() => products.value.slice(0, 5));
+const HOME_PRODUCTS = 6;
+const PAGE_SIZE = 6;
+const homeProducts = computed(() => products.value.slice(0, HOME_PRODUCTS));
 const displayedProducts = computed(() => showFullCatalog.value ? activeCategory.value === "Todos" ? products.value : products.value.filter((product) => product.categories?.includes(activeCategory.value)) : homeProducts.value);
 
 function productScaleClass(item: Product) {
@@ -191,7 +195,7 @@ const availableDeliverySlots = computed(() => {
 });
 
 async function refreshCatalog() {
-  const { data } = await storeApi.products(offerId, 1, 5);
+  const { data } = await storeApi.products(offerId, 1, PAGE_SIZE);
   products.value = data.products;
   offer.value = data.offer;
   catalogPage.value = 1;
@@ -211,7 +215,7 @@ async function loadMore() {
     const category = activeCategory.value !== "Todos" ? activeCategory.value : undefined;
     const sort = activeSort.value;
     const search = searchQuery.value.trim() || undefined;
-    const { data } = await storeApi.products(offerId, nextPage, 5, category, sort, search);
+    const { data } = await storeApi.products(offerId, nextPage, PAGE_SIZE, category, sort, search);
     const currentIds = new Set(products.value.map((product) => product._id));
     products.value = [...products.value, ...data.products.filter((product) => !currentIds.has(product._id))];
     catalogPage.value = nextPage;
@@ -465,7 +469,7 @@ async function refreshFilteredProducts() {
     const category = activeCategory.value !== "Todos" ? activeCategory.value : undefined;
     const sort = activeSort.value;
     const search = searchQuery.value.trim() || undefined;
-    const { data } = await storeApi.products(offerId, 1, 5, category, sort, search);
+    const { data } = await storeApi.products(offerId, 1, PAGE_SIZE, category, sort, search);
     products.value = data.products;
     catalogPage.value = 1;
     hasMore.value = data.pagination?.hasMore ?? false;
@@ -478,7 +482,6 @@ async function refreshFilteredProducts() {
 }
 
 watch(activeCategory, async () => {
-  if (!showFullCatalog.value) return;
   await refreshFilteredProducts();
 });
 
@@ -533,6 +536,7 @@ watch(showFullCatalog, async (val) => {
       </div>
       <div id="inicio" class="hero-copy">
         <p class="eyebrow">Floristería contemporánea · Guayaquil</p>
+        <p class="hero-shipping">Envío gratis en todas nuestras zonas</p>
         <h1>Un gesto<br /><i>vivo.</i></h1>
         <p class="hero-text">
           Diseñamos flores con intención, para los días que merecen quedar en la
@@ -559,6 +563,7 @@ watch(showFullCatalog, async (val) => {
         <p>
           Nuestros arreglos preservados para celebrar, agradecer y acompañar los
           momentos que importan.
+          <span class="section-shipping">Envío gratis: solo eliges tu sector de entrega.</span>
         </p>
       </div>
       <p v-if="errorMessage && !isCheckoutOpen" class="error">
@@ -579,6 +584,12 @@ watch(showFullCatalog, async (val) => {
           <button v-if="searchQuery" type="button" class="clear-search" @click="searchQuery = ''">×</button>
         </div>
       </div>
+      <div class="catalog-filters">
+        <p class="filters-label">Categorías</p>
+        <div class="category-filters" role="group" aria-label="Filtrar por categoría">
+          <button v-for="category in categories" :key="category" type="button" :class="{ active: activeCategory === category }" @click="activeCategory = category">{{ category }}</button>
+        </div>
+      </div>
       <div class="featured-label">
         <button
           v-for="sortOption in [{ id: 'quality', label: 'Ordenados por calidad' }, { id: 'featured', label: 'Primero los destacados' }, { id: 'seasonal', label: 'De la temporada' }]"
@@ -590,10 +601,10 @@ watch(showFullCatalog, async (val) => {
           {{ sortOption.label }}
         </button>
       </div>
-      <div class="product-list">
+      <div class="product-list" :class="{ 'home-grid': !showFullCatalog }">
         <template v-if="isLoading"
           ><article
-            v-for="index in 10"
+            v-for="index in PAGE_SIZE"
             :key="index"
             class="product-card skeleton"
           >
@@ -639,12 +650,7 @@ watch(showFullCatalog, async (val) => {
       </div>
       <div class="catalog-toggle">
         <button v-if="!showFullCatalog" type="button" @click="showFullCatalog = true">Ver todos los productos <span>↓</span></button>
-        <template v-else>
-          <div class="category-filters" aria-label="Filtrar por categoría">
-            <button v-for="category in categories" :key="category" type="button" :class="{ active: activeCategory === category }" @click="activeCategory = category">{{ category }}</button>
-          </div>
-          <button type="button" @click="showFullCatalog = false; activeCategory = 'Todos'">Ver selección preservada <span>↑</span></button>
-        </template>
+        <button v-else type="button" @click="showFullCatalog = false; activeCategory = 'Todos'">Ver menos <span>↑</span></button>
       </div>
     </section>
 
@@ -722,10 +728,10 @@ watch(showFullCatalog, async (val) => {
             <span>Subtotal</span><strong>{{ formatPrice(subtotal) }}</strong>
           </div>
           <div>
-            <span>Entrega</span><strong>{{ selectedDeliveryZone ? formatPrice(deliveryFee) : "Selecciona tu zona" }}</strong>
+            <span>Entrega</span><strong class="free-shipping-value">Gratis</strong>
           </div>
           <div class="grand-total">
-            <span>Total</span><strong>{{ selectedDeliveryZone ? formatPrice(total) : "Selecciona tu zona" }}</strong>
+            <span>Total</span><strong>{{ formatPrice(total) }}</strong>
           </div>
           <button class="primary-button" type="button" @click="openCheckout">
             Continuar al checkout <span>→</span>
@@ -874,11 +880,11 @@ watch(showFullCatalog, async (val) => {
               placeholder="https://maps.google.com/..." /></label
           ><fieldset class="delivery-zone full">
             <legend>Zona de entrega</legend>
-            <p>¿A dónde llevamos tus flores? Selecciona tu sector para calcular el envío.</p>
+            <p>¿A dónde llevamos tus flores? Selecciona tu sector: el envío es <strong>gratis</strong> en todas nuestras zonas.</p>
             <div class="delivery-zone-options" role="radiogroup" aria-label="Zona de entrega">
               <label v-for="zone in deliveryZones" :key="zone.name" :class="{ selected: checkout.zone === zone.name }">
                 <input v-model="checkout.zone" required type="radio" name="delivery-zone" :value="zone.name" />
-                <span>{{ zone.name }}</span><strong>{{ formatPrice(zone.fee) }}</strong>
+                <span>{{ zone.name }}</span><strong class="free-shipping-value">Gratis</strong>
               </label>
             </div>
           </fieldset
@@ -969,7 +975,7 @@ watch(showFullCatalog, async (val) => {
             </ul>
           </div>
         </div>
-        <p class="delivery-warning-notice">Si seleccionas una zona incorrecta para acceder a una tarifa menor, Bruval no asegura reembolso ni cobertura de la diferencia de envío.</p>
+        <p class="delivery-warning-notice">El envío es gratis, pero la zona define la ruta de entrega: si seleccionas una zona incorrecta, Bruval no asegura la entrega en la franja elegida ni el reembolso del pedido.</p>
         <label class="delivery-confirmation-check" :class="{ checked: deliveryDetailsConfirmed }">
           <input v-model="deliveryDetailsConfirmed" type="checkbox" />
           <span><strong>Estoy de acuerdo con la dirección, zona y medidas indicadas.</strong><small>Confirmo estos datos para evitar malentendidos en la preparación y entrega.</small></span>
@@ -1233,6 +1239,44 @@ h1 i {
   display: flex;
   flex-wrap: wrap;
   gap: 48px 2%;
+}
+/* En el home mostramos 6 arreglos: 3 por fila cierran la grilla sin huecos. */
+.product-list.home-grid .product-card {
+  width: 32%;
+}
+.hero-shipping {
+  display: inline-block;
+  margin: 0 0 18px;
+  padding: 7px 14px;
+  border: 1px solid rgba($primary, 0.3);
+  border-radius: 999px;
+  background: rgba($primary, 0.06);
+  color: $primary;
+  font: 600 10px $font-principal;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.section-shipping {
+  display: block;
+  margin-top: 14px;
+  color: $primary;
+  font-weight: 600;
+}
+.catalog-filters {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+.filters-label {
+  color: $text-secondary;
+  font: 600 10px $font-principal;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.free-shipping-value {
+  color: $primary;
 }
 .catalog-toggle { display:flex; flex-direction:column; align-items:center; gap:24px; margin-top:58px; } .catalog-toggle > button { border:1px solid $primary; padding:14px 18px; color:$primary; background:transparent; font:600 11px $font-principal; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; transition:.2s; } .catalog-toggle > button:hover { color:$white; background:$primary; } .category-filters { display:flex; max-width:100%; gap:8px; overflow-x:auto; padding-bottom:4px; } .category-filters button { flex:0 0 auto; border:1px solid #d5dde6; padding:9px 13px; color:$text-secondary; background:transparent; font:600 10px $font-principal; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; } .category-filters button.active { color:$white; border-color:$primary; background:$primary; } .catalog-search { margin-bottom: 20px; width: 100%; max-width: 480px; } .search-wrapper { position: relative; display: flex; align-items: center; } .search-input { width: 100%; padding: 12px 40px 12px 42px; border: 1px solid #d9c8c0; border-radius: 6px; font: 14px $font-principal; color: #211817; background: #fffdfb; transition: border-color 0.2s, box-shadow 0.2s; outline: none; &:focus { border-color: $primary; box-shadow: 0 0 0 3px rgba($primary, 0.1); } } .search-icon { position: absolute; left: 14px; width: 18px; height: 18px; color: #9c8c86; pointer-events: none; } .clear-search { position: absolute; right: 12px; background: none; border: 0; color: #9c8c86; font-size: 18px; font-weight: 500; cursor: pointer; padding: 4px; line-height: 1; &:hover { color: $primary; } } .featured-label { display:flex; gap:10px; margin-bottom:38px; flex-wrap:wrap; } .featured-label button { border:1px solid rgba($primary,.25); padding:8px 14px; color:$primary; background:rgba($primary,.04); font:600 10px $font-principal; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; border-radius:4px; transition:all 0.2s ease; } .featured-label button:hover { background:rgba($primary, 0.08); border-color:$primary; } .featured-label button.active { color:$white; background:$primary; border-color:$primary; box-shadow:0 2px 8px rgba($primary, 0.2); } .catalog-sentinel { width:100%; height:60px; display:flex; align-items:center; justify-content:center; color:$text-secondary; font-size:11px; letter-spacing:.06em; text-transform:uppercase; }
 .product-card {
@@ -2238,7 +2282,8 @@ textarea {
   .product-list {
     gap: 38px 4%;
   }
-  .product-card {
+  .product-card,
+  .product-list.home-grid .product-card {
     width: 48%;
     min-width: 0;
   }
