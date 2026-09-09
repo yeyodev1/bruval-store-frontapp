@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/sitemap.xml",
+      "destination": "https://bruval-backapp.vercel.app/api/products/sitemap.xml"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "https://bruval-backapp.vercel.app/api/$1"
     },

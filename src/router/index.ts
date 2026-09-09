@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { trackMeta } from '@/services/metaPixel'
 
 const routes: Array<RouteRecordRaw> = [
   {
@@ -6,6 +7,12 @@ const routes: Array<RouteRecordRaw> = [
     name: 'Home',
     component: () => import('../views/HomeView.vue'),
     meta: { title: 'Flores a domicilio en Guayaquil | Bruval', description: 'Flores, rosas preservadas y detalles para entregar momentos especiales en Guayaquil, Ecuador.' },
+  },
+  {
+    path: '/producto/:slug',
+    name: 'Product',
+    component: () => import('../views/ProductView.vue'),
+    meta: { title: 'Comprar flores | Bruval', description: 'Compra este arreglo floral con envío gratis en Guayaquil.' },
   },
   {
     path: '/pay-response',
@@ -55,8 +62,10 @@ const routes: Array<RouteRecordRaw> = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
-  scrollBehavior() {
-    return { left: 0, top: 0, behavior: 'smooth' }
+  scrollBehavior(to, _from, savedPosition) {
+    if (savedPosition) return savedPosition
+    if (to.hash) return { el: to.hash, behavior: 'smooth' }
+    return { left: 0, top: 0 }
   },
 })
 
@@ -84,10 +93,11 @@ router.afterEach((to) => {
   const robots = document.querySelector<HTMLMetaElement>('meta[name="robots"]')
   if (robots) robots.content = to.meta.noindex ? 'noindex, nofollow' : 'index, follow, max-image-preview:large'
 
-  // Track page view in Meta Pixel
-  if (typeof (window as any).fbq === 'function') {
-    (window as any).fbq('track', 'PageView');
-  }
+  // PageView por Pixel + Conversions API (con deduplicación). Las páginas de
+  // producto actualizan título y canonical al cargar el producto.
+  const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]')
+  if (canonical && !to.meta.noindex) canonical.href = `${window.location.origin}${to.path}`
+  trackMeta('PageView')
 })
 
 export default router

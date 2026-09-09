@@ -27,6 +27,21 @@ export interface CheckoutPayload {
   items: Array<{ productId: string; quantity: number }>
   customer: { name: string; email: string; phone: string; phoneConfirmed: boolean }
   delivery: { recipient: string; address: string; mapUrl: string; zone: string; date: string; timeSlot: string; messageCard: string }
+  tracking?: { fbp?: string; fbc?: string; eventSourceUrl?: string }
+}
+
+export interface MetaEventPayload {
+  eventName: string
+  eventId: string
+  eventSourceUrl: string
+  customData?: Record<string, unknown>
+  fbp?: string
+  fbc?: string
+}
+
+export interface OfferState {
+  active: boolean
+  expiresAt: string
 }
 
 class StoreApi extends APIBase {
@@ -38,6 +53,14 @@ class StoreApi extends APIBase {
     return this.get<{ products: Product[]; offer: { active: boolean; expiresAt: string }; pagination: { page: number; limit: number; total: number; totalPages: number; hasMore: boolean } }>(url)
   }
 
+  product(slug: string, offerId: string) {
+    return this.get<{ product: Product; related: Product[]; offer: OfferState }>(`products/${encodeURIComponent(slug)}?offerId=${encodeURIComponent(offerId)}`)
+  }
+
+  trackMetaEvent(payload: MetaEventPayload) {
+    return this.post<{ accepted: boolean }>('meta/events', payload, undefined, { timeout: 5000 })
+  }
+
   createOrder(payload: CheckoutPayload) {
     return this.post<{ orderNumber: string; total: number; payphone: { token?: string; storeId?: string } }>('orders', payload)
   }
@@ -47,7 +70,7 @@ class StoreApi extends APIBase {
   }
 
   confirmPayphonePayment(id: string, clientTransactionId: string) {
-    return this.post<{ approved: boolean; orderNumber: string; message: string; order: { items: Array<{ name: string; price: number; quantity: number }>; total: number; customer: { name: string; email: string; phone: string }; delivery: { recipient: string; address: string; mapUrl: string; date: string; timeSlot: string; messageCard: string }; status: string } }>('payments/payphone/confirm', { id, clientTransactionId })
+    return this.post<{ approved: boolean; orderNumber: string; message: string; order: { items: Array<{ name: string; sku?: string; price: number; quantity: number }>; total: number; customer: { name: string; email: string; phone: string }; delivery: { recipient: string; address: string; mapUrl: string; date: string; timeSlot: string; messageCard: string }; status: string } }>('payments/payphone/confirm', { id, clientTransactionId })
   }
 }
 

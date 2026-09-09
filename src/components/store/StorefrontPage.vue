@@ -1,11 +1,17 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import {
   storeApi,
   type CartItem,
   type CheckoutPayload,
   type Product,
 } from "@/services/storeApi";
+import { metaTrackingSnapshot, productParams, trackMeta } from "@/services/metaPixel";
+
+/** Slug del producto cuando el componente se renderiza como página de compra (/producto/:slug). */
+const props = defineProps<{ slug?: string }>();
+const router = useRouter();
 
 function readStored<T>(key: string, fallback: T): T {
   try {
@@ -41,7 +47,12 @@ const products = ref<Product[]>([]);
 const cart = ref<CartItem[]>(readStored<CartItem[]>("bruval-cart", []));
 const isLoading = ref(true);
 const isCartOpen = ref(false);
-const selected = ref<Product | null>(null);
+const pageProduct = ref<Product | null>(null);
+const relatedProducts = ref<Product[]>([]);
+const isProductLoading = ref(false);
+const productError = ref("");
+const productQuantity = ref(1);
+const isProductPage = computed(() => Boolean(props.slug));
 const loadedImages = ref(new Set<string>());
 const showFullCatalog = ref(false);
 const activeCategory = ref("Todos");
@@ -101,6 +112,119 @@ const deliveryFee = computed(() =>
 );
 const total = computed(() => subtotal.value + deliveryFee.value);
 const formatPrice = (value: number) => `$${value.toFixed(2)}`;
+function productLink(product: Pick<Product, "slug" | "sku">) {
+  return { path: `/producto/${product.slug || product.sku}`, query: { oferta: offerId } };
+}
+const productCategory = computed(() => pageProduct.value?.categories?.[0] || "Colección");
+const productWhatsApp = computed(() => {
+  const product = pageProduct.value;
+  if (!product) return "https://wa.me/593999480437";
+  const message = [
+    `Hola, equipo Bruval. Quiero este producto: ${product.name} (${product.sku}) por ${formatPrice(product.price)}.`,
+    `Cantidad: ${productQuantity.value}`,
+    `Enlace: ${window.location.origin}/producto/${product.slug || product.sku}`,
+    "",
+    "¿Me ayudan a coordinar la compra y la entrega?",
+  ].join("\n");
+  return `https://wa.me/593999480437?text=${encodeURIComponent(message)}`;
+});
+const productTotal = computed(() => (pageProduct.value ? pageProduct.value.price * productQuantity.value : 0));
+
+/** Actualiza (o crea) una etiqueta meta identificada por `name` o `property`. */
+function setMetaTag(selector: string, attribute: string, value: string) {
+  let element = document.head.querySelector<HTMLMetaElement>(selector);
+  if (!element) {
+    const match = selector.match(/^meta\[(name|property)="([^"]+)"\]$/);
+    if (!match) return;
+    element = document.createElement("meta");
+    element.setAttribute(match[1] as string, match[2] as string);
+    document.head.appendChild(element);
+  }
+  element.setAttribute(attribute, value);
+}
+
+function applyProductSeo(product: Product) {
+  const title = `${product.name} | Comprar en Bruval`;
+  const description = `${product.name} (${product.sku}, ${product.dimensions}). ${product.description}`.slice(0, 160);
+  const url = `${window.location.origin}/producto/${product.slug || product.sku}`;
+  document.title = title;
+  setMetaTag('meta[name="description"]', "content", description);
+  setMetaTag('meta[property="og:title"]', "content", title);
+  setMetaTag('meta[property="og:description"]', "content", description);
+  setMetaTag('meta[property="og:url"]', "content", url);
+  setMetaTag('meta[property="og:type"]', "content", "product");
+  setMetaTag('meta[property="og:image"]', "content", productImage(product.image, 1200, 1200));
+  setMetaTag('meta[name="twitter:card"]', "content", "summary_large_image");
+  setMetaTag('meta[name="twitter:title"]', "content", title);
+  setMetaTag('meta[name="twitter:description"]', "content", description);
+  const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+  if (canonical) canonical.href = url;
+
+  let schema = document.getElementById("product-schema") as HTMLScriptElement | null;
+  if (!schema) {
+    schema = document.createElement("script");
+    schema.type = "application/ld+json";
+    schema.id = "product-schema";
+    document.head.appendChild(schema);
+  }
+  schema.textContent = JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: product.name,
+    sku: product.sku,
+    image: [productImage(product.image, 1200, 1200)],
+    description: product.description,
+    brand: { "@type": "Brand", name: "Bruval" },
+    category: product.categories?.[0],
+    offers: {
+      "@type": "Offer",
+      url,
+      priceCurrency: "USD",
+      price: product.price.toFixed(2),
+      availability: "https://schema.org/InStock",
+      itemCondition: "https://schema.org/NewCondition",
+      shippingDetails: { "@type": "OfferShippingDetails", shippingRate: { "@type": "MonetaryAmount", value: 0, currency: "USD" }, shippingDestination: { "@type": "DefinedRegion", addressCountry: "EC", addressRegion: "Guayas" } },
+    },
+  });
+}
+
+function clearProductSeo() {
+  document.getElementById("product-schema")?.remove();
+  setMetaTag('meta[property="og:type"]', "content", "website");
+}
+
+async function loadProduct(slug: string) {
+  isProductLoading.value = true;
+  productError.value = "";
+  productQuantity.value = 1;
+  try {
+    const { data } = await storeApi.product(slug, offerId);
+    pageProduct.value = data.product;
+    relatedProducts.value = data.related;
+    offer.value = data.offer;
+    applyProductSeo(data.product);
+    trackMeta("ViewContent", productParams(data.product));
+  } catch (error: any) {
+    pageProduct.value = null;
+    relatedProducts.value = [];
+    productError.value = error?.status === 404 ? "Este arreglo ya no está disponible." : "No pudimos cargar este arreglo. Inténtalo nuevamente.";
+  } finally {
+    isProductLoading.value = false;
+  }
+}
+
+function goToCollection() {
+  return router.push({ path: "/", query: { oferta: offerId }, hash: "#coleccion" });
+}
+
+function changeProductQuantity(amount: number) {
+  productQuantity.value = Math.max(1, Math.min(10, productQuantity.value + amount));
+}
+
+function trackProductWhatsApp() {
+  if (!pageProduct.value) return;
+  trackMeta("Contact", { ...productParams(pageProduct.value, productQuantity.value), content_name: `WhatsApp · ${pageProduct.value.name}` });
+}
 function productImage(url: string, width: number, height: number) {
   if (!url.includes("res.cloudinary.com") || !url.includes("/upload/")) return url;
   const lowerUrl = url.toLowerCase();
@@ -225,23 +349,19 @@ async function loadMore() {
   }
 }
 
-function addToCart(product: Product) {
+function addToCart(product: Product, quantity = 1, openCart = true) {
+  const amount = Math.max(1, Math.min(10, quantity));
   const current = cart.value.find((item) => item._id === product._id);
-  if (current) current.quantity += 1;
-  else cart.value.push({ ...product, quantity: 1 });
-  selected.value = null;
-  isCartOpen.value = true;
+  if (current) current.quantity = Math.min(10, current.quantity + amount);
+  else cart.value.push({ ...product, quantity: amount });
+  if (openCart) isCartOpen.value = true;
+  trackMeta("AddToCart", productParams(product, amount));
+}
 
-  // Track AddToCart in Meta Pixel
-  if (typeof (window as any).fbq === "function") {
-    (window as any).fbq("track", "AddToCart", {
-      content_name: product.name,
-      content_ids: [product.sku],
-      content_type: "product",
-      value: product.price,
-      currency: "USD",
-    });
-  }
+/** Compra directa: agrega al carrito y abre el checkout sin pasar por el carrito. */
+function buyNow(product: Product, quantity = 1) {
+  addToCart(product, quantity, false);
+  openCheckout();
 }
 
 function changeQuantity(id: string, amount: number) {
@@ -257,21 +377,14 @@ function openCheckout() {
   isCheckoutOpen.value = true;
   checkoutStep.value = "details";
   errorMessage.value = "";
-
-  // Track InitiateCheckout in Meta Pixel
-  if (typeof (window as any).fbq === "function") {
-    const contents = cart.value.map((item) => ({
-      id: item.sku,
-      quantity: item.quantity,
-      item_price: item.price,
-    }));
-    (window as any).fbq("track", "InitiateCheckout", {
-      contents,
-      content_type: "product",
-      value: total.value,
-      currency: "USD",
-    });
-  }
+  trackMeta("InitiateCheckout", {
+    contents: cart.value.map((item) => ({ id: item.sku, quantity: item.quantity, item_price: item.price })),
+    content_ids: cart.value.map((item) => item.sku),
+    content_type: "product",
+    num_items: cartCount.value,
+    value: total.value,
+    currency: "USD",
+  });
 }
 
 function openCheckoutWhatsApp() {
@@ -281,13 +394,13 @@ function openCheckoutWhatsApp() {
 
 function trackWhatsAppCheckout() {
   isCheckoutWhatsAppConfirmationOpen.value = false;
-  if (typeof (window as any).fbq === "function") {
-    (window as any).fbq("track", "Lead", {
-      content_name: "WhatsApp Checkout",
-      value: total.value,
-      currency: "USD",
-    });
-  }
+  trackMeta("Lead", {
+    content_name: "WhatsApp Checkout",
+    content_ids: cart.value.map((item) => item.sku),
+    content_type: "product",
+    value: total.value,
+    currency: "USD",
+  });
 }
 
 async function beginPayment() {
@@ -319,11 +432,20 @@ async function beginPayment() {
         timeSlot: checkout.value.timeSlot,
         messageCard: checkout.value.messageCard,
       },
+      tracking: metaTrackingSnapshot(),
     };
     const { data } = await storeApi.createOrder(payload);
     orderNumber.value = data.orderNumber;
     payment.value = data.payphone;
     checkoutStep.value = "payment";
+    trackMeta("AddPaymentInfo", {
+      contents: cart.value.map((item) => ({ id: item.sku, quantity: item.quantity, item_price: item.price })),
+      content_ids: cart.value.map((item) => item.sku),
+      content_type: "product",
+      order_id: data.orderNumber,
+      value: total.value,
+      currency: "USD",
+    }, { eventId: `${data.orderNumber}-payment` });
     await nextTick();
     await renderPayphone();
   } catch (error: any) {
@@ -417,6 +539,7 @@ function setupObserver() {
 }
 
 onMounted(async () => {
+  if (props.slug) void loadProduct(props.slug);
   try {
     await refreshCatalog();
   } catch {
@@ -439,6 +562,11 @@ watch(sentinel, (el) => {
 onUnmounted(() => {
   clearInterval(countdownTimer);
   observer?.disconnect();
+  if (props.slug) clearProductSeo();
+});
+
+watch(() => props.slug, (slug) => {
+  if (slug) void loadProduct(slug);
 });
 
 watch(cart, (value) => localStorage.setItem("bruval-cart", JSON.stringify(value)), { deep: true });
@@ -450,18 +578,12 @@ watch(isOfferActive, (active, previous) => {
 watch(availableDeliverySlots, (slots) => {
   if (!slots.includes(checkout.value.timeSlot)) checkout.value.timeSlot = slots[0] || "";
 });
-watch(selected, (product) => {
-  if (product) {
-    if (typeof (window as any).fbq === "function") {
-      (window as any).fbq("track", "ViewContent", {
-        content_name: product.name,
-        content_ids: [product.sku],
-        content_type: "product",
-        value: product.price,
-        currency: "USD",
-      });
-    }
-  }
+let searchTrackTimer: ReturnType<typeof setTimeout> | undefined;
+watch(searchQuery, (value) => {
+  clearTimeout(searchTrackTimer);
+  const query = value.trim();
+  if (query.length < 3) return;
+  searchTrackTimer = setTimeout(() => trackMeta("Search", { search_string: query, content_type: "product" }), 900);
 });
 async function refreshFilteredProducts() {
   isLoadingMore.value = true;
@@ -517,8 +639,8 @@ watch(showFullCatalog, async (val) => {
   <main class="storefront">
     <header class="site-header">
       <nav class="nav" aria-label="Navegación principal">
-        <a class="brand" href="#inicio" aria-label="Bruval, inicio"><img src="/logo-bruval.png" alt="Bruval" /></a>
-        <a class="nav-link" href="#coleccion">Colección</a>
+        <RouterLink class="brand" :to="{ path: '/', query: { oferta: offerId } }" aria-label="Bruval, inicio"><img src="/logo-bruval.png" alt="Bruval" /></RouterLink>
+        <RouterLink class="nav-link" :to="{ path: '/', query: { oferta: offerId }, hash: '#coleccion' }">Colección</RouterLink>
         <a class="nav-link" href="/pedido">¿Ya tienes un pedido?</a>
         <p class="nav-note">Flores para sentir cerca</p>
         <button class="cart-trigger" type="button" @click="isCartOpen = true">
@@ -528,6 +650,7 @@ watch(showFullCatalog, async (val) => {
         </button>
       </nav>
     </header>
+    <template v-if="!isProductPage">
     <section class="hero">
       <div v-if="isOfferActive" class="offer-banner">
         <span>Enlace privado · precios especiales</span>
@@ -617,19 +740,19 @@ watch(showFullCatalog, async (val) => {
           :key="product._id"
           class="product-card"
         >
-          <button
+          <RouterLink
             class="product-image image-loading"
             :class="[{ 'image-ready': loadedImages.has(product.image) }, productScaleClass(product)]"
-            type="button"
-            @click="selected = product"
+            :to="productLink(product)"
+            :aria-label="`Ver y comprar ${product.name}`"
           >
             <img :src="productImage(product.image, 720, 780)" :alt="product.name" @load="markImageLoaded(product.image)" /><span>{{ product.dimensions }}</span>
             <small class="product-reference">Imagen referencial</small>
             <b v-if="product.webExclusive" class="web-exclusive">Web exclusivo · {{ product.discountPercentage }}% OFF</b>
-          </button>
+          </RouterLink>
           <div class="product-info">
             <div>
-              <h3>{{ product.name }}</h3>
+              <h3><RouterLink :to="productLink(product)">{{ product.name }}</RouterLink></h3>
               <p>{{ product.sku }} · {{ product.dimensions }}</p>
               <p>{{ product.description }}</p>
             </div>
@@ -638,7 +761,7 @@ watch(showFullCatalog, async (val) => {
                 <del v-if="product.regularPrice">{{ formatPrice(product.regularPrice) }}</del>
                 <strong>{{ formatPrice(product.price) }}</strong>
               </div>
-              <button class="product-purchase" type="button" @click="addToCart(product)">
+              <button class="product-purchase" type="button" @click="buyNow(product)">
                 Comprar ahora <span>→</span>
               </button>
             </div>
@@ -662,8 +785,141 @@ watch(showFullCatalog, async (val) => {
       </p>
       <div><span>Fresco</span><span>Local</span><span>Intencional</span></div>
     </section>
+    </template>
+
+    <section v-else class="product-page">
+      <nav class="breadcrumb" aria-label="Ruta de navegación">
+        <RouterLink :to="{ path: '/', query: { oferta: offerId } }">Inicio</RouterLink>
+        <span aria-hidden="true">/</span>
+        <RouterLink :to="{ path: '/', query: { oferta: offerId }, hash: '#coleccion' }">{{ productCategory }}</RouterLink>
+        <span aria-hidden="true">/</span>
+        <b>{{ pageProduct?.name || "Arreglo" }}</b>
+      </nav>
+      <div v-if="isOfferActive" class="offer-banner product-offer">
+        <span>Enlace privado · precios especiales</span>
+        <strong>Termina en {{ countdown }}</strong>
+      </div>
+
+      <div v-if="isProductLoading && !pageProduct" class="product-page-grid">
+        <div class="product-gallery skeleton"></div>
+        <div class="product-buy">
+          <div class="skeleton-line short"></div>
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line short"></div>
+        </div>
+      </div>
+
+      <div v-else-if="productError" class="product-missing">
+        <p class="eyebrow">Colección Bruval</p>
+        <h1>Este arreglo<br /><i>ya voló.</i></h1>
+        <p>{{ productError }}</p>
+        <button class="primary-button" type="button" @click="goToCollection">Ver toda la colección <span>→</span></button>
+      </div>
+
+      <div v-else-if="pageProduct" class="product-page-grid">
+        <div class="product-gallery image-loading" :class="[{ 'image-ready': loadedImages.has(pageProduct.image) }, productScaleClass(pageProduct)]">
+          <img :src="productImage(pageProduct.image, 1200, 1300)" :alt="pageProduct.name" fetchpriority="high" @load="markImageLoaded(pageProduct.image)" />
+          <b v-if="pageProduct.webExclusive" class="web-exclusive">Web exclusivo · {{ pageProduct.discountPercentage }}% OFF</b>
+          <small class="product-reference">Imagen referencial</small>
+        </div>
+
+        <div class="product-buy">
+          <p class="eyebrow">{{ pageProduct.palette }} · {{ pageProduct.sku }}</p>
+          <h1>{{ pageProduct.name }}</h1>
+          <div class="product-buy-price">
+            <del v-if="pageProduct.regularPrice">{{ formatPrice(pageProduct.regularPrice) }}</del>
+            <strong>{{ formatPrice(pageProduct.price) }}</strong>
+            <span v-if="pageProduct.regularPrice" class="product-saving">Ahorras {{ formatPrice(pageProduct.regularPrice - pageProduct.price) }}</span>
+          </div>
+          <p class="product-buy-shipping">Envío <strong>gratis</strong> en Guayaquil · Entrega desde 2 horas · Pago seguro con PayPhone</p>
+
+          <div class="product-buy-actions">
+            <div class="quantity-stepper" role="group" aria-label="Cantidad">
+              <button type="button" aria-label="Quitar uno" :disabled="productQuantity <= 1" @click="changeProductQuantity(-1)">−</button>
+              <span aria-live="polite">{{ productQuantity }}</span>
+              <button type="button" aria-label="Agregar uno" :disabled="productQuantity >= 10" @click="changeProductQuantity(1)">+</button>
+            </div>
+            <button class="primary-button buy-now" type="button" @click="buyNow(pageProduct, productQuantity)">
+              Comprar ahora · {{ formatPrice(productTotal) }} <span>→</span>
+            </button>
+          </div>
+          <button class="secondary-button" type="button" @click="addToCart(pageProduct, productQuantity)">Agregar al carrito y seguir viendo</button>
+          <a class="whatsapp-product" :href="productWhatsApp" target="_blank" rel="noopener" @click="trackProductWhatsApp">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 1.8a8.2 8.2 0 1 1-4.2 15.3l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 0 1 12 3.8Zm-3.2 4.4c-.2 0-.5 0-.7.3-.3.3-1 1-1 2.4s1 2.8 1.2 3c.1.2 2 3.2 5 4.4 2.5 1 3 .8 3.5.7.5 0 1.7-.7 1.9-1.4.2-.7.2-1.2.2-1.4l-.5-.3-1.9-.9c-.3-.1-.5-.1-.7.1l-.8 1c-.2.2-.3.2-.6.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.4.1-.2 0-.4 0-.5l-.9-2c-.2-.5-.4-.5-.6-.5h-.5Z"/></svg>
+            Quiero este producto por WhatsApp
+          </a>
+
+          <dl class="product-specs">
+            <div>
+              <dt>Medidas</dt>
+              <dd>{{ pageProduct.dimensions }}</dd>
+            </div>
+            <div>
+              <dt>Colección</dt>
+              <dd>{{ pageProduct.collection }}</dd>
+            </div>
+            <div>
+              <dt>Código</dt>
+              <dd>{{ pageProduct.sku }}</dd>
+            </div>
+          </dl>
+          <p class="product-buy-description">{{ pageProduct.description }}</p>
+          <p class="image-reference-note">Imagen referencial. La composición puede variar según la disponibilidad de flores.</p>
+          <ul class="product-trust">
+            <li><b>Pago seguro</b> con tarjeta a través de PayPhone.</li>
+            <li><b>Entrega coordinada</b> por WhatsApp con un asesor Bruval.</li>
+            <li><b>Tarjeta con tu mensaje</b> incluida en cada arreglo.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div v-if="relatedProducts.length" class="related">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Sigue explorando</p>
+            <h2>También te<br />puede gustar.</h2>
+          </div>
+          <button class="text-link" type="button" @click="goToCollection">Ver toda la colección <span>→</span></button>
+        </div>
+        <div class="product-list related-list">
+          <article v-for="product in relatedProducts" :key="product._id" class="product-card">
+            <RouterLink
+              class="product-image image-loading"
+              :class="[{ 'image-ready': loadedImages.has(product.image) }, productScaleClass(product)]"
+              :to="productLink(product)"
+              :aria-label="`Ver y comprar ${product.name}`"
+            >
+              <img :src="productImage(product.image, 720, 780)" :alt="product.name" @load="markImageLoaded(product.image)" /><span>{{ product.dimensions }}</span>
+              <small class="product-reference">Imagen referencial</small>
+              <b v-if="product.webExclusive" class="web-exclusive">Web exclusivo · {{ product.discountPercentage }}% OFF</b>
+            </RouterLink>
+            <div class="product-info">
+              <div>
+                <h3><RouterLink :to="productLink(product)">{{ product.name }}</RouterLink></h3>
+                <p>{{ product.sku }} · {{ product.dimensions }}</p>
+              </div>
+              <div class="product-bottom">
+                <div class="product-price">
+                  <del v-if="product.regularPrice">{{ formatPrice(product.regularPrice) }}</del>
+                  <strong>{{ formatPrice(product.price) }}</strong>
+                </div>
+                <button class="product-purchase" type="button" @click="buyNow(product)">Comprar ahora <span>→</span></button>
+              </div>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <div v-if="pageProduct" class="mobile-buy-bar" :class="{ hidden: isCartOpen || isCheckoutOpen }">
+        <div>
+          <span>{{ pageProduct.name }}</span>
+          <strong>{{ formatPrice(productTotal) }}</strong>
+        </div>
+        <button class="primary-button" type="button" @click="buyNow(pageProduct, productQuantity)">Comprar ahora <span>→</span></button>
+      </div>
+    </section>
     <footer>
-      <a class="brand" href="#inicio" aria-label="Bruval, inicio"><img src="/logo-bruval.png" alt="Bruval" /></a>
+      <RouterLink class="brand" :to="{ path: '/', query: { oferta: offerId } }" aria-label="Bruval, inicio"><img src="/logo-bruval.png" alt="Bruval" /></RouterLink>
       <p>Guayaquil, Ecuador · Todos los días</p>
       <p>© 2026 Bruval Flores</p>
     </footer>
@@ -678,11 +934,10 @@ watch(showFullCatalog, async (val) => {
 
     <Transition name="fade"
       ><div
-        v-if="isCartOpen || selected || isCheckoutOpen || isCheckoutWhatsAppOpen || isCheckoutWhatsAppConfirmationOpen || isDeliveryZoneWarningOpen"
+        v-if="isCartOpen || isCheckoutOpen || isCheckoutWhatsAppOpen || isCheckoutWhatsAppConfirmationOpen || isDeliveryZoneWarningOpen"
         class="backdrop"
         @click.self="
            isCartOpen = false;
-           selected = null;
            isCheckoutOpen = false;
             isCheckoutWhatsAppOpen = false;
             isCheckoutWhatsAppConfirmationOpen = false;
@@ -701,9 +956,9 @@ watch(showFullCatalog, async (val) => {
         </div>
         <div v-if="cart.length" class="cart-items">
           <div v-for="item in cart" :key="item._id" class="cart-item">
-            <img :src="productImage(item.image, 160, 160)" :alt="item.name" />
+            <RouterLink :to="productLink(item)" @click="isCartOpen = false"><img :src="productImage(item.image, 160, 160)" :alt="item.name" /></RouterLink>
             <div>
-              <h3>{{ item.name }}</h3>
+              <h3><RouterLink :to="productLink(item)" @click="isCartOpen = false">{{ item.name }}</RouterLink></h3>
               <p>{{ formatPrice(item.price) }}</p>
               <div class="quantity">
                 <button type="button" @click="changeQuantity(item._id, -1)">
@@ -741,54 +996,6 @@ watch(showFullCatalog, async (val) => {
           </button>
         </div>
       </aside></Transition
-    >
-
-    <Transition name="modal"
-      ><section v-if="selected" class="modal product-modal">
-        <button class="close" type="button" @click="selected = null">×</button
-        ><div class="product-modal-image image-loading" :class="[{ 'image-ready': loadedImages.has(selected.image) }, productScaleClass(selected)]">
-          <img :src="productImage(selected.image, 900, 1100)" :alt="selected.name" @load="markImageLoaded(selected.image)" />
-        </div>
-        <div class="product-modal-content">
-          <div class="product-modal-body">
-            <p class="eyebrow">{{ selected.palette }}</p>
-            <p v-if="selected.webExclusive" class="web-exclusive modal-exclusive">Oferta exclusiva web · {{ selected.discountPercentage }}% OFF</p>
-            <h2>{{ selected.name }}</h2>
-            <dl class="product-specs">
-              <div>
-                <dt>Medidas</dt>
-                <dd>{{ selected.dimensions }}</dd>
-              </div>
-              <div>
-                <dt>Colección</dt>
-                <dd>{{ selected.collection }}</dd>
-              </div>
-              <div>
-                <dt>Código</dt>
-                <dd>{{ selected.sku }}</dd>
-              </div>
-            </dl>
-            <p>{{ selected.description }}</p>
-            <p class="image-reference-note modal-reference">Imagen referencial. La composición puede variar según la disponibilidad de flores.</p>
-          </div>
-          <div class="product-modal-footer">
-            <div class="product-modal-price-row">
-              <span>Precio online</span>
-              <div class="product-price">
-                <del v-if="selected.regularPrice">{{ formatPrice(selected.regularPrice) }}</del>
-                <strong>{{ formatPrice(selected.price) }}</strong>
-              </div>
-            </div>
-            <button
-              class="primary-button"
-              type="button"
-              @click="addToCart(selected)"
-            >
-              Comprar ahora <span>→</span>
-            </button>
-          </div>
-        </div>
-      </section></Transition
     >
 
     <Transition name="modal"
@@ -1287,12 +1494,15 @@ h1 i {
   gap: 16px;
 }
 .product-image {
+  display: block;
   height: 390px;
   padding: 0;
   border: 0;
   background: #f1f4f7;
   position: relative;
   overflow: hidden;
+  color: inherit;
+  text-decoration: none;
 }
 .product-image img {
   width: 100%;
@@ -1366,6 +1576,17 @@ h1 i {
 }
 .product-info h3 {
   font: 500 25px/1 $font-secondary;
+}
+.product-info h3 a {
+  color: inherit;
+  text-decoration: none;
+}
+.product-info h3 a:hover {
+  color: $primary;
+}
+.cart-item h3 a {
+  color: inherit;
+  text-decoration: none;
 }
 .product-info p {
   min-height: 42px;
@@ -1639,56 +1860,6 @@ footer .brand {
   top: 18px;
   right: 18px;
 }
-.product-modal {
-  width: min(820px, 92vw);
-  max-height: min(680px, calc(100dvh - 104px));
-  display: grid;
-  grid-template-columns: minmax(280px, 44%) minmax(0, 1fr);
-  overflow: hidden;
-}
-.product-modal-image {
-  width: auto;
-  min-height: 0;
-  position: relative;
-  overflow: hidden;
-}
-.product-modal-image img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  background: #f1f4f7;
-  transition: transform 0.38s ease;
-}
-.product-modal-image.scale-tiny img {
-  transform: scale(0.62);
-}
-.product-modal-image.scale-mini img {
-  transform: scale(0.60);
-}
-.product-modal-image.scale-small img {
-  transform: scale(0.74);
-}
-.product-modal-image.scale-medium img {
-  transform: scale(0.85);
-}
-.product-modal-image.scale-medium-large img {
-  transform: scale(1.28);
-}
-.product-modal-image.scale-large img {
-  transform: scale(1.42);
-}
-.product-modal-image.scale-xl img {
-  transform: scale(1.75);
-}
-.product-modal-content {
-  min-width: 0;
-  padding: 52px 46px;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  height: 100%;
-}
-.product-modal h2,
 .checkout-modal h2 {
   font-size: 52px;
   line-height: 0.92;
@@ -1733,48 +1904,6 @@ footer .brand {
   color: #a9473f;
   font: 600 24px "DM Mono", monospace;
   letter-spacing: -0.06em;
-}
-.product-modal-content > p:not(.eyebrow) {
-  margin: 28px 0;
-  color: #483f3d;
-  line-height: 1.6;
-}
-.product-modal-content > p.modal-reference {
-  margin: -12px 0 24px;
-  padding-left: 10px;
-  border-left: 2px solid rgba($primary, .45);
-  color: $text-secondary;
-  font-size: 12px;
-}
-.product-modal-body {
-  flex: 1;
-  overflow-y: auto;
-  padding-right: 12px;
-  margin-bottom: 24px;
-}
-.product-modal-footer {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding-top: 24px;
-  border-top: 1px solid #e4d9d3;
-}
-.product-modal-price-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-}
-.product-modal-price-row span {
-  font: 500 10px $font-principal;
-  color: #634843;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-.product-modal-price-row strong {
-  margin-bottom: 0;
-  font: 600 24px "DM Mono", monospace;
-  color: #a9473f;
 }
 .checkout-modal {
   width: min(860px, 94vw);
@@ -2302,21 +2431,6 @@ textarea {
     flex-direction: column;
     gap: 12px;
   }
-  .product-modal {
-    width: min(480px, 92vw);
-    max-height: min(620px, calc(100dvh - 86px));
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(180px, 32vh) minmax(0, 1fr);
-  }
-  .product-modal-image {
-    width: 100%;
-    min-height: 0;
-    max-height: none;
-  }
-  .product-modal-content {
-    min-height: 0;
-    padding: 32px 28px;
-  }
   .product-specs {
     margin-top: 24px;
   }
@@ -2378,5 +2492,319 @@ textarea {
 }
 .footer-credits a:hover {
   opacity: 0.8;
+}
+
+/* ---------- Página de producto (compra directa) ---------- */
+.product-page {
+  padding: 22px 4vw 90px;
+}
+.breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 26px;
+  color: $text-secondary;
+  font: 500 11px $font-principal;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.breadcrumb a {
+  color: inherit;
+  text-decoration: none;
+}
+.breadcrumb a:hover {
+  color: $primary;
+}
+.breadcrumb b {
+  color: $primary-dark;
+  font-weight: 600;
+}
+.product-offer {
+  align-self: flex-start;
+  margin: 0 0 24px;
+}
+.product-page-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 1.05fr) minmax(0, 1fr);
+  gap: clamp(28px, 5vw, 72px);
+  align-items: start;
+}
+.product-gallery {
+  position: sticky;
+  top: 92px;
+  aspect-ratio: 11 / 12;
+  overflow: hidden;
+  background: #f1f4f7;
+}
+.product-gallery img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transition: transform 0.38s ease;
+}
+.product-gallery.scale-tiny img { transform: scale(0.62); }
+.product-gallery.scale-mini img { transform: scale(0.6); }
+.product-gallery.scale-small img { transform: scale(0.74); }
+.product-gallery.scale-medium img { transform: scale(0.85); }
+.product-gallery.scale-medium-large img { transform: scale(1.28); }
+.product-gallery.scale-large img { transform: scale(1.42); }
+.product-gallery.scale-xl img { transform: scale(1.75); }
+.product-gallery .product-reference {
+  position: absolute;
+  z-index: 2;
+  left: 12px;
+  bottom: 12px;
+}
+.product-gallery.skeleton {
+  animation: pulse 1.3s infinite alternate;
+}
+.product-buy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.product-buy .eyebrow {
+  margin-bottom: 14px;
+}
+.product-buy h1 {
+  margin: 0;
+  font: 500 clamp(40px, 5.2vw, 66px)/0.92 $font-secondary;
+  letter-spacing: -0.05em;
+}
+.product-buy-price {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 12px;
+  margin: 22px 0 10px;
+}
+.product-buy-price del {
+  color: $text-secondary;
+  font: 500 16px "DM Mono", monospace;
+}
+.product-buy-price strong {
+  color: #a9473f;
+  font: 600 34px "DM Mono", monospace;
+  letter-spacing: -0.05em;
+}
+.product-saving {
+  padding: 5px 8px;
+  color: #a9473f;
+  background: rgba(#a9473f, 0.08);
+  font: 600 10px $font-principal;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.product-buy-shipping {
+  margin: 0 0 24px;
+  color: $text-secondary;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.product-buy-shipping strong {
+  color: #2f6b45;
+}
+.product-buy-actions {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+.quantity-stepper {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  border: 1px solid rgba($primary, 0.3);
+}
+.quantity-stepper button {
+  width: 44px;
+  height: 100%;
+  min-height: 52px;
+  border: 0;
+  background: transparent;
+  color: $primary;
+  font-size: 20px;
+}
+.quantity-stepper button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.quantity-stepper span {
+  min-width: 34px;
+  text-align: center;
+  font: 600 14px "DM Mono", monospace;
+}
+.product-buy-actions .primary-button {
+  flex: 1;
+  min-height: 52px;
+  font-size: 13px;
+}
+.secondary-button {
+  width: 100%;
+  margin-top: 12px;
+  padding: 14px 18px;
+  border: 1px solid rgba($primary, 0.3);
+  color: $primary;
+  background: transparent;
+  font: 600 12px $font-principal;
+  transition: 0.2s;
+}
+.secondary-button:hover {
+  border-color: $primary;
+  background: rgba($primary, 0.05);
+}
+.whatsapp-product {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 18px;
+  color: #fffaf6;
+  background: #25a55f;
+  border-radius: 999px;
+  text-decoration: none;
+  font: 600 12px $font-principal;
+  transition: background 0.2s, transform 0.2s;
+}
+.whatsapp-product:hover {
+  background: #1f8f52;
+  transform: translateY(-1px);
+}
+.whatsapp-product svg {
+  width: 20px;
+  height: 20px;
+}
+.product-buy .product-specs {
+  margin-top: 34px;
+}
+.product-buy-description {
+  margin: 26px 0 14px;
+  color: #483f3d;
+  font-size: 15px;
+  line-height: 1.65;
+}
+.product-buy .image-reference-note {
+  margin: 0 0 24px;
+  padding-left: 10px;
+  border-left: 2px solid rgba($primary, 0.45);
+  color: $text-secondary;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.product-trust {
+  margin: 0;
+  padding: 18px 0 0;
+  border-top: 1px solid #e4d9d3;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  color: $text-secondary;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.product-trust b {
+  color: $primary-dark;
+  font-weight: 600;
+}
+.product-missing {
+  max-width: 560px;
+  padding: 60px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.product-missing h1 {
+  margin: 0;
+  font: 500 clamp(48px, 7vw, 88px)/0.86 $font-secondary;
+  letter-spacing: -0.06em;
+}
+.product-missing h1 i {
+  padding-left: 6vw;
+}
+.product-missing .primary-button {
+  width: max-content;
+  gap: 24px;
+}
+.related {
+  margin-top: clamp(60px, 9vw, 110px);
+}
+.related .section-heading {
+  align-items: flex-end;
+  margin-bottom: 34px;
+}
+.related .section-heading .text-link {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+.related-list {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.mobile-buy-bar {
+  display: none;
+}
+@media (max-width: 800px) {
+  .product-page {
+    padding-bottom: 120px;
+  }
+  .product-page-grid {
+    grid-template-columns: 1fr;
+    gap: 26px;
+  }
+  .product-gallery {
+    position: static;
+    aspect-ratio: 1 / 1;
+  }
+  .product-buy-actions {
+    flex-wrap: wrap;
+  }
+  .product-buy-actions .primary-button {
+    flex-basis: 100%;
+  }
+  .related-list {
+    grid-template-columns: 1fr;
+  }
+  .mobile-buy-bar {
+    position: fixed;
+    z-index: 6;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 4vw calc(12px + env(safe-area-inset-bottom));
+    background: rgba($white, 0.96);
+    border-top: 1px solid rgba($primary, 0.12);
+    backdrop-filter: blur(14px);
+    transition: transform 0.25s;
+  }
+  .mobile-buy-bar.hidden {
+    transform: translateY(110%);
+  }
+  .mobile-buy-bar > div {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .mobile-buy-bar span {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 12px;
+    color: $text-secondary;
+  }
+  .mobile-buy-bar strong {
+    color: #a9473f;
+    font: 600 18px "DM Mono", monospace;
+  }
+  .mobile-buy-bar .primary-button {
+    width: auto;
+    gap: 14px;
+    padding: 14px 16px;
+  }
 }
 </style>

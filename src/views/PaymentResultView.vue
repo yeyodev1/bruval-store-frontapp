@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { storeApi } from '@/services/storeApi'
+import { trackMeta } from '@/services/metaPixel'
 
 const route = useRoute()
 const state = ref<'loading' | 'approved' | 'failed'>('loading')
@@ -47,16 +48,23 @@ onMounted(async () => {
       state.value = 'approved'
       message.value = 'Tu pago fue aprobado. Estamos preparando algo muy especial.'
 
-      // Track Purchase in Meta Pixel
-      if (typeof (window as any).fbq === 'function' && data.order) {
-        const itemIds = data.order.items.map((item: any) => item.sku || item.name);
-        (window as any).fbq('track', 'Purchase', {
-          content_ids: itemIds,
-          content_type: 'product',
-          value: data.order.total,
-          currency: 'USD',
-          num_items: data.order.items.reduce((sum: number, item: any) => sum + item.quantity, 0)
-        });
+      // Purchase: mismo eventID (número de pedido) que envía el backend por
+      // Conversions API al confirmar con Payphone, así Meta lo cuenta una vez.
+      if (data.order) {
+        const purchased = localStorage.getItem('bruval-purchase-tracked')
+        if (purchased !== data.orderNumber) {
+          trackMeta('Purchase', {
+            content_ids: data.order.items.map((item) => item.sku || item.name),
+            contents: data.order.items.map((item) => ({ id: item.sku || item.name, quantity: item.quantity, item_price: item.price })),
+            content_type: 'product',
+            value: data.order.total,
+            currency: 'USD',
+            order_id: data.orderNumber,
+            num_items: data.order.items.reduce((sum, item) => sum + item.quantity, 0),
+          }, { eventId: data.orderNumber, server: false })
+          localStorage.setItem('bruval-purchase-tracked', data.orderNumber)
+        }
+        localStorage.removeItem('bruval-cart')
       }
     } else {
       state.value = 'failed'

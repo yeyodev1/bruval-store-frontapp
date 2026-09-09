@@ -50,7 +50,8 @@
       s.parentNode.insertBefore(t,s)}(window, document,'script',
       'https://connect.facebook.net/en_US/fbevents.js');
       fbq('init', '2505857343219197');
-      fbq('track', 'PageView');
+      // PageView se dispara desde el router (src/router/index.ts) con eventID
+      // para deduplicar con la Conversions API del backend.
     </script>
     <noscript>
       <img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=2505857343219197&ev=PageView&noscript=1" />
