@@ -9,8 +9,11 @@ import {
 } from "@/services/storeApi";
 import { metaTrackingSnapshot, productParams, trackMeta } from "@/services/metaPixel";
 
-/** Slug del producto cuando el componente se renderiza como página de compra (/producto/:slug). */
-const props = defineProps<{ slug?: string }>();
+/**
+ * `slug`: el componente se renderiza como página de compra (/producto/:slug).
+ * `checkoutPage`: el componente se renderiza como vista de checkout (/checkout).
+ */
+const props = defineProps<{ slug?: string; checkoutPage?: boolean }>();
 const router = useRouter();
 
 function readStored<T>(key: string, fallback: T): T {
@@ -53,6 +56,7 @@ const isProductLoading = ref(false);
 const productError = ref("");
 const productQuantity = ref(1);
 const isProductPage = computed(() => Boolean(props.slug));
+const isCheckoutPage = computed(() => Boolean(props.checkoutPage));
 const loadedImages = ref(new Set<string>());
 const showFullCatalog = ref(false);
 const activeCategory = ref("Todos");
@@ -63,7 +67,6 @@ const hasMore = ref(false);
 const isLoadingMore = ref(false);
 const catalogTotal = ref(0);
 const sentinel = ref<HTMLElement | null>(null);
-const isCheckoutOpen = ref(false);
 const isCheckoutWhatsAppOpen = ref(false);
 const isCheckoutWhatsAppConfirmationOpen = ref(false);
 const isDeliveryZoneWarningOpen = ref(false);
@@ -358,7 +361,7 @@ function addToCart(product: Product, quantity = 1, openCart = true) {
   trackMeta("AddToCart", productParams(product, amount));
 }
 
-/** Compra directa: agrega al carrito y abre el checkout sin pasar por el carrito. */
+/** Compra directa: agrega al carrito y va al checkout sin pasar por el carrito. */
 function buyNow(product: Product, quantity = 1) {
   addToCart(product, quantity, false);
   openCheckout();
@@ -374,8 +377,6 @@ function changeQuantity(id: string, amount: number) {
 
 function openCheckout() {
   isCartOpen.value = false;
-  isCheckoutOpen.value = true;
-  checkoutStep.value = "details";
   errorMessage.value = "";
   trackMeta("InitiateCheckout", {
     contents: cart.value.map((item) => ({ id: item.sku, quantity: item.quantity, item_price: item.price })),
@@ -385,10 +386,14 @@ function openCheckout() {
     value: total.value,
     currency: "USD",
   });
+  // La vista de checkout es otra instancia del componente y lee el carrito al
+  // montar: se guarda ya, sin esperar al watcher.
+  localStorage.setItem("bruval-cart", JSON.stringify(cart.value));
+  if (!isCheckoutPage.value) void router.push({ path: "/checkout", query: { oferta: offerId } });
 }
 
 function openCheckoutWhatsApp() {
-  openCheckout();
+  isCartOpen.value = false;
   isCheckoutWhatsAppOpen.value = true;
 }
 
@@ -438,6 +443,7 @@ async function beginPayment() {
     orderNumber.value = data.orderNumber;
     payment.value = data.payphone;
     checkoutStep.value = "payment";
+    window.scrollTo({ top: 0, behavior: "smooth" });
     trackMeta("AddPaymentInfo", {
       contents: cart.value.map((item) => ({ id: item.sku, quantity: item.quantity, item_price: item.price })),
       content_ids: cart.value.map((item) => item.sku),
@@ -543,7 +549,8 @@ onMounted(async () => {
   try {
     await refreshCatalog();
   } catch {
-    errorMessage.value =
+    // En el checkout el catálogo solo refresca precios del carrito: no es un error para el cliente.
+    if (!isCheckoutPage.value) errorMessage.value =
       "No pudimos cargar los arreglos. Revisa que la API esté disponible.";
   } finally {
     isLoading.value = false;
@@ -650,7 +657,7 @@ watch(showFullCatalog, async (val) => {
         </button>
       </nav>
     </header>
-    <template v-if="!isProductPage">
+    <template v-if="!isProductPage && !isCheckoutPage">
     <section class="hero">
       <div v-if="isOfferActive" class="offer-banner">
         <span>Enlace privado · precios especiales</span>
@@ -689,7 +696,7 @@ watch(showFullCatalog, async (val) => {
           <span class="section-shipping">Envío gratis: solo eliges tu sector de entrega.</span>
         </p>
       </div>
-      <p v-if="errorMessage && !isCheckoutOpen" class="error">
+      <p v-if="errorMessage" class="error">
         {{ errorMessage }}
       </p>
       <div class="catalog-search">
@@ -787,7 +794,7 @@ watch(showFullCatalog, async (val) => {
     </section>
     </template>
 
-    <section v-else class="product-page">
+    <section v-else-if="isProductPage" class="product-page">
       <nav class="breadcrumb" aria-label="Ruta de navegación">
         <RouterLink :to="{ path: '/', query: { oferta: offerId } }">Inicio</RouterLink>
         <span aria-hidden="true">/</span>
@@ -910,13 +917,201 @@ watch(showFullCatalog, async (val) => {
         </div>
       </div>
 
-      <div v-if="pageProduct" class="mobile-buy-bar" :class="{ hidden: isCartOpen || isCheckoutOpen }">
+      <div v-if="pageProduct" class="mobile-buy-bar" :class="{ hidden: isCartOpen }">
         <div>
           <span>{{ pageProduct.name }}</span>
           <strong>{{ formatPrice(productTotal) }}</strong>
         </div>
         <button class="primary-button" type="button" @click="buyNow(pageProduct, productQuantity)">Comprar ahora <span>→</span></button>
       </div>
+    </section>
+    <section v-else class="checkout-page">
+      <nav class="breadcrumb" aria-label="Ruta de navegación">
+        <RouterLink :to="{ path: '/', query: { oferta: offerId } }">Inicio</RouterLink>
+        <span aria-hidden="true">/</span>
+        <b>Checkout</b>
+      </nav>
+
+      <div v-if="!cart.length && checkoutStep === 'details'" class="product-missing">
+        <p class="eyebrow">Checkout seguro</p>
+        <h1>Tu selección<br /><i>está vacía.</i></h1>
+        <p>Elige un arreglo de la colección para continuar con tu compra.</p>
+        <button class="primary-button" type="button" @click="goToCollection">Ver toda la colección <span>→</span></button>
+      </div>
+
+      <template v-else>
+        <header class="checkout-header">
+          <ol class="checkout-steps" aria-label="Pasos de la compra">
+            <li :class="{ active: checkoutStep === 'details', done: checkoutStep === 'payment' }"><b>1</b> Datos de entrega</li>
+            <li :class="{ active: checkoutStep === 'payment' }"><b>2</b> Pago seguro</li>
+          </ol>
+          <p class="eyebrow">Checkout seguro</p>
+          <h1>{{ checkoutStep === "details" ? "Casi en sus manos." : "Un último paso." }}</h1>
+          <p class="checkout-lead">
+            {{
+              checkoutStep === "details"
+                ? "Cuéntanos dónde y cuándo debe llegar este gesto. Al finalizar tu compra verás un botón de WhatsApp para hablar con nuestro equipo cuando lo necesites."
+                : "Completa tu pago seguro con PayPhone. Tu selección está reservada."
+            }}
+          </p>
+        </header>
+        <div class="checkout-page-grid">
+          <div class="checkout-main">
+            <form
+              v-if="checkoutStep === 'details'"
+              class="checkout-form"
+              @submit.prevent="confirmDeliveryDetails"
+            >
+              <label
+                >Nombre<input
+                  v-model.trim="checkout.firstName"
+                  required
+                  autocomplete="given-name"
+                  placeholder="Diego" /></label
+              ><label
+                >Apellido<input
+                  v-model.trim="checkout.lastName"
+                  required
+                  autocomplete="family-name"
+                  placeholder="Reyes" /></label
+              ><label class="full"
+                >Correo para confirmaciones<input
+                  v-model.trim="checkout.email"
+                  required
+                  type="email"
+                  autocomplete="email"
+                  placeholder="tu@correo.com" /></label
+              ><label class="full"
+                >Teléfono
+                <div class="phone-field">
+                  <select v-model="phonePrefix" aria-label="Código de país">
+                    <option value="+593">🇪🇨 +593</option>
+                    <option value="+57">🇨🇴 +57</option>
+                    <option value="+51">🇵🇪 +51</option>
+                  </select>
+                  <input
+                    v-model.trim="checkout.phone"
+                    required
+                    type="tel"
+                    inputmode="tel"
+                    autocomplete="tel-national"
+                    placeholder="999 999 999"
+                  />
+                </div>
+                <span class="phone-confirmation">
+                  <input v-model="checkout.phoneConfirmed" required type="checkbox" />
+                  Confirmo que este es mi número y autorizo que un asesor de Bruval me contacte para coordinar mi pedido.
+                </span></label
+              ><label class="full"
+                >Nombre de quien recibe<input
+                  v-model.trim="checkout.recipient"
+                  required /></label
+              ><label class="full"
+                >Dirección de entrega<textarea
+                  v-model.trim="checkout.address"
+                  required
+                  rows="2"
+                ></textarea></label
+              ><label class="full"
+                >Link de Google Maps<input
+                  v-model.trim="checkout.mapUrl"
+                  required
+                  type="url"
+                  placeholder="https://maps.google.com/..." /></label
+              ><fieldset class="delivery-zone full">
+                <legend>Zona de entrega</legend>
+                <p>¿A dónde llevamos tus flores? Selecciona tu sector: el envío es <strong>gratis</strong> en todas nuestras zonas.</p>
+                <div class="delivery-zone-options" role="radiogroup" aria-label="Zona de entrega">
+                  <label v-for="zone in deliveryZones" :key="zone.name" :class="{ selected: checkout.zone === zone.name }">
+                    <input v-model="checkout.zone" required type="radio" name="delivery-zone" :value="zone.name" />
+                    <span>{{ zone.name }}</span><strong class="free-shipping-value">Gratis</strong>
+                  </label>
+                </div>
+              </fieldset
+              ><label class="delivery-date"
+                >Fecha de entrega
+                <span>Disponible con mínimo 2 horas de anticipación</span><input
+                  v-model="checkout.date"
+                  required
+                  type="date"
+                  :min="minimumDeliveryDate" /></label
+              ><label
+                >Franja horaria<select v-model="checkout.timeSlot" required :disabled="!checkout.date || !availableDeliverySlots.length">
+                  <option v-if="!checkout.date" value="">Selecciona una fecha</option>
+                  <option v-else-if="!availableDeliverySlots.length" value="">No hay horarios disponibles</option>
+                  <option v-for="slot in availableDeliverySlots" :key="slot" :value="slot">{{ slot }}</option>
+                </select></label
+              ><label class="full"
+                >Tarjeta de memoria<textarea
+                  v-model.trim="checkout.messageCard"
+                  required
+                  rows="3"
+                  placeholder="Escribe el mensaje que acompañará las flores..."
+                ></textarea>
+              </label>
+              <p v-if="errorMessage" class="error full">{{ errorMessage }}</p>
+              <button
+                class="primary-button full"
+                :disabled="isSubmitting || !selectedDeliveryZone"
+                type="submit"
+              >
+                {{ isSubmitting ? "Preparando pago..." : "Ir al pago seguro" }}
+                <span>→</span>
+              </button>
+            </form>
+            <div v-else class="payment-step">
+              <div id="payphone-button" class="payphone-loading">
+                <span></span>
+                <p>Cargando pago seguro...</p>
+              </div>
+              <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
+              <button
+                type="button"
+                class="text-link"
+                @click="checkoutStep = 'details'"
+              >
+                ← Editar información
+              </button>
+            </div>
+          </div>
+
+          <aside class="checkout-summary" aria-label="Resumen del pedido">
+            <div class="checkout-summary-head">
+              <h2>Tu pedido</h2>
+              <span>{{ cartCount }} {{ cartCount === 1 ? "arreglo" : "arreglos" }}</span>
+            </div>
+            <ul class="checkout-summary-items">
+              <li v-for="item in cart" :key="item._id">
+                <img :src="productImage(item.image, 160, 160)" :alt="item.name" />
+                <div>
+                  <h3>{{ item.name }}</h3>
+                  <p>{{ item.sku }} · {{ item.dimensions }}</p>
+                  <div v-if="checkoutStep === 'details'" class="quantity">
+                    <button type="button" :aria-label="`Quitar uno de ${item.name}`" @click="changeQuantity(item._id, -1)">−</button
+                    ><span>{{ item.quantity }}</span
+                    ><button type="button" :aria-label="`Agregar uno de ${item.name}`" :disabled="item.quantity >= 10" @click="changeQuantity(item._id, 1)">+</button>
+                  </div>
+                  <p v-else>Cantidad: {{ item.quantity }}</p>
+                </div>
+                <strong>{{ formatPrice(item.price * item.quantity) }}</strong>
+              </li>
+            </ul>
+            <div class="cart-total">
+              <div><span>Subtotal</span><strong>{{ formatPrice(subtotal) }}</strong></div>
+              <div><span>Entrega</span><strong class="free-shipping-value">Gratis</strong></div>
+              <div class="grand-total"><span>Total</span><strong>{{ formatPrice(total) }}</strong></div>
+            </div>
+            <ul class="product-trust">
+              <li><b>Pago seguro</b> con tarjeta a través de PayPhone.</li>
+              <li><b>Envío gratis</b> en todas nuestras zonas de Guayaquil.</li>
+              <li><b>Tarjeta con tu mensaje</b> incluida en cada arreglo.</li>
+            </ul>
+            <button v-if="checkoutStep === 'details'" class="whatsapp-button" type="button" @click="isCheckoutWhatsAppOpen = true">
+              Prefiero terminar por WhatsApp ↗
+            </button>
+          </aside>
+        </div>
+      </template>
     </section>
     <footer>
       <RouterLink class="brand" :to="{ path: '/', query: { oferta: offerId } }" aria-label="Bruval, inicio"><img src="/logo-bruval.png" alt="Bruval" /></RouterLink>
@@ -934,11 +1129,10 @@ watch(showFullCatalog, async (val) => {
 
     <Transition name="fade"
       ><div
-        v-if="isCartOpen || isCheckoutOpen || isCheckoutWhatsAppOpen || isCheckoutWhatsAppConfirmationOpen || isDeliveryZoneWarningOpen"
+        v-if="isCartOpen || isCheckoutWhatsAppOpen || isCheckoutWhatsAppConfirmationOpen || isDeliveryZoneWarningOpen"
         class="backdrop"
         @click.self="
            isCartOpen = false;
-           isCheckoutOpen = false;
             isCheckoutWhatsAppOpen = false;
             isCheckoutWhatsAppConfirmationOpen = false;
             isDeliveryZoneWarningOpen = false;
@@ -998,150 +1192,6 @@ watch(showFullCatalog, async (val) => {
       </aside></Transition
     >
 
-    <Transition name="modal"
-      ><section v-if="isCheckoutOpen" class="modal checkout-modal">
-        <button class="close" type="button" @click="isCheckoutOpen = false">
-          ×
-        </button>
-        <div class="checkout-intro">
-          <p class="eyebrow">Checkout seguro</p>
-          <h2>
-            {{
-              checkoutStep === "details"
-                ? "Casi en sus manos."
-                : "Un último paso."
-            }}
-          </h2>
-          <p>
-            {{
-              checkoutStep === "details"
-                ? "Estaremos contigo en cada paso. Cuéntanos dónde y cuándo debe llegar este gesto. Al finalizar tu compra verás un botón de WhatsApp para hablar con nuestro equipo cuando lo necesites."
-                : "Completa tu pago seguro con PayPhone. Tu selección está reservada."
-            }}
-          </p>
-          <button v-if="checkoutStep === 'details'" class="checkout-whatsapp" type="button" @click="isCheckoutWhatsAppOpen = true">Terminar compra por WhatsApp ↗</button>
-          <div class="checkout-total">
-            <span>Total</span><strong>{{ formatPrice(total) }}</strong>
-          </div>
-        </div>
-        <form
-          v-if="checkoutStep === 'details'"
-          class="checkout-form"
-          @submit.prevent="confirmDeliveryDetails"
-        >
-          <label
-            >Nombre<input
-              v-model.trim="checkout.firstName"
-              required
-              autocomplete="given-name"
-              placeholder="Diego" /></label
-          ><label
-            >Apellido<input
-              v-model.trim="checkout.lastName"
-              required
-              autocomplete="family-name"
-              placeholder="Reyes" /></label
-          ><label class="full"
-            >Correo para confirmaciones<input
-              v-model.trim="checkout.email"
-              required
-              type="email"
-              autocomplete="email"
-              placeholder="tu@correo.com" /></label
-          ><label class="full"
-            >Teléfono
-            <div class="phone-field">
-              <select v-model="phonePrefix" aria-label="Código de país">
-                <option value="+593">🇪🇨 +593</option>
-                <option value="+57">🇨🇴 +57</option>
-                <option value="+51">🇵🇪 +51</option>
-              </select>
-              <input
-                v-model.trim="checkout.phone"
-                required
-                type="tel"
-                inputmode="tel"
-                autocomplete="tel-national"
-                placeholder="999 999 999"
-              />
-            </div>
-            <span class="phone-confirmation">
-              <input v-model="checkout.phoneConfirmed" required type="checkbox" />
-              Confirmo que este es mi número y autorizo que un asesor de Bruval me contacte para coordinar mi pedido.
-            </span></label
-          ><label class="full"
-            >Nombre de quien recibe<input
-              v-model.trim="checkout.recipient"
-              required /></label
-          ><label class="full"
-            >Dirección de entrega<textarea
-              v-model.trim="checkout.address"
-              required
-              rows="2"
-            ></textarea></label
-          ><label class="full"
-            >Link de Google Maps<input
-              v-model.trim="checkout.mapUrl"
-              required
-              type="url"
-              placeholder="https://maps.google.com/..." /></label
-          ><fieldset class="delivery-zone full">
-            <legend>Zona de entrega</legend>
-            <p>¿A dónde llevamos tus flores? Selecciona tu sector: el envío es <strong>gratis</strong> en todas nuestras zonas.</p>
-            <div class="delivery-zone-options" role="radiogroup" aria-label="Zona de entrega">
-              <label v-for="zone in deliveryZones" :key="zone.name" :class="{ selected: checkout.zone === zone.name }">
-                <input v-model="checkout.zone" required type="radio" name="delivery-zone" :value="zone.name" />
-                <span>{{ zone.name }}</span><strong class="free-shipping-value">Gratis</strong>
-              </label>
-            </div>
-          </fieldset
-          ><label class="delivery-date"
-            >Fecha de entrega
-            <span>Disponible con mínimo 2 horas de anticipación</span><input
-              v-model="checkout.date"
-              required
-              type="date"
-              :min="minimumDeliveryDate" /></label
-          ><label
-            >Franja horaria<select v-model="checkout.timeSlot" required :disabled="!checkout.date || !availableDeliverySlots.length">
-              <option v-if="!checkout.date" value="">Selecciona una fecha</option>
-              <option v-else-if="!availableDeliverySlots.length" value="">No hay horarios disponibles</option>
-              <option v-for="slot in availableDeliverySlots" :key="slot" :value="slot">{{ slot }}</option>
-            </select></label
-          ><label class="full"
-            >Tarjeta de memoria<textarea
-              v-model.trim="checkout.messageCard"
-              required
-              rows="3"
-              placeholder="Escribe el mensaje que acompañará las flores..."
-            ></textarea>
-          </label>
-          <p v-if="errorMessage" class="error full">{{ errorMessage }}</p>
-          <button
-            class="primary-button full"
-            :disabled="isSubmitting || !selectedDeliveryZone"
-            type="submit"
-          >
-            {{ isSubmitting ? "Preparando pago..." : "Ir al pago seguro" }}
-            <span>→</span>
-          </button>
-        </form>
-        <div v-else class="payment-step">
-          <div id="payphone-button" class="payphone-loading">
-            <span></span>
-            <p>Cargando pago seguro...</p>
-          </div>
-          <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
-          <button
-            type="button"
-            class="text-link"
-            @click="checkoutStep = 'details'"
-          >
-            ← Editar información
-          </button>
-        </div>
-      </section></Transition
-    >
     <Transition name="modal">
       <aside v-if="isCheckoutWhatsAppOpen" class="modal checkout-whatsapp-modal" role="dialog" aria-modal="true" aria-labelledby="whatsapp-checkout-title">
         <button class="close" type="button" aria-label="Cerrar" @click="isCheckoutWhatsAppOpen = false">×</button>
@@ -1228,8 +1278,7 @@ footer,
 .product-bottom,
 .panel-head,
 .cart-item,
-.cart-total > div,
-.checkout-total {
+.cart-total > div {
   display: flex;
   align-items: center;
 }
@@ -1860,10 +1909,6 @@ footer .brand {
   top: 18px;
   right: 18px;
 }
-.checkout-modal h2 {
-  font-size: 52px;
-  line-height: 0.92;
-}
 .product-specs {
   width: 100%;
   margin: 30px 0 0;
@@ -1904,39 +1949,6 @@ footer .brand {
   color: #a9473f;
   font: 600 24px "DM Mono", monospace;
   letter-spacing: -0.06em;
-}
-.checkout-modal {
-  width: min(860px, 94vw);
-  height: min(720px, calc(100dvh - 104px));
-  box-sizing: border-box;
-  overflow: hidden;
-  padding: 58px;
-  display: flex;
-  align-items: stretch;
-  gap: 56px;
-}
-.checkout-intro {
-  flex: 0 0 33%;
-  width: 33%;
-  overflow: hidden;
-}
-.checkout-intro > p:not(.eyebrow) {
-  margin: 22px 0;
-  color: #706663;
-  line-height: 1.6;
-  font-size: 14px;
-}
-.checkout-whatsapp {
-  display: inline-block;
-  border: 0;
-  padding: 0;
-  margin-bottom: 22px;
-  color: #427a55;
-  background: transparent;
-  text-align: left;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
 }
 .checkout-whatsapp-modal {
   z-index: 12;
@@ -2122,29 +2134,16 @@ footer .brand {
   font: 600 12px $font-principal;
   cursor: pointer;
 }
-.checkout-total {
-  justify-content: space-between;
-  padding-top: 20px;
-  border-top: 1px solid #dbe2ea;
-  font: 500 18px $font-secondary;
-}
 .checkout-form,
 .payment-step {
-  flex: 1;
   min-width: 0;
-  min-height: 0;
   box-sizing: border-box;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
   display: flex;
   flex-wrap: wrap;
   align-content: flex-start;
   gap: 16px;
 }
-.checkout-form {
-  padding: 0 10px 40px 0;
-}
+
 .checkout-form > label {
   width: calc(50% - 8px);
   display: flex;
@@ -2292,7 +2291,6 @@ textarea {
 .payment-step {
   flex-direction: column;
   gap: 20px;
-  padding: 0 10px 40px 0;
 }
 #payphone-button {
   width: 100%;
@@ -2396,16 +2394,14 @@ textarea {
     top: 104px;
     right: 5vw;
   }
-  .section-heading,
-  .checkout-modal {
+  .section-heading {
     align-items: flex-start;
     flex-direction: column;
   }
   .section-heading {
     gap: 28px;
   }
-  .section-heading > p,
-  .checkout-intro {
+  .section-heading > p {
     width: 100%;
   }
   .product-list {
@@ -2433,22 +2429,6 @@ textarea {
   }
   .product-specs {
     margin-top: 24px;
-  }
-  .checkout-modal {
-    height: auto;
-    max-height: calc(100dvh - 72px);
-    overflow-y: auto;
-    padding: 36px 24px;
-    gap: 30px;
-  }
-  .checkout-intro {
-    flex-basis: auto;
-    overflow: visible;
-  }
-  .checkout-form,
-  .payment-step {
-    overflow: visible;
-    padding-right: 0;
   }
   .delivery-warning-modal {
     padding: 42px 24px 26px;
@@ -2805,6 +2785,156 @@ textarea {
     width: auto;
     gap: 14px;
     padding: 14px 16px;
+  }
+}
+
+/* ---------- Vista de checkout (/checkout) ---------- */
+.checkout-page {
+  padding: 22px 4vw 90px;
+  background: #fffaf6;
+}
+.checkout-page-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.9fr);
+  gap: clamp(28px, 5vw, 72px);
+  align-items: start;
+}
+.checkout-header {
+  margin-bottom: 34px;
+}
+.checkout-main {
+  min-width: 0;
+}
+.checkout-header h1 {
+  font: 500 clamp(40px, 5.2vw, 66px)/0.92 $font-secondary;
+  letter-spacing: -0.05em;
+}
+.checkout-lead {
+  max-width: 560px;
+  margin-top: 18px;
+  color: $text-secondary;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.checkout-steps {
+  margin: 0 0 30px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  color: #a3958f;
+  font: 600 11px $font-principal;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.checkout-steps li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.checkout-steps b {
+  width: 24px;
+  height: 24px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+}
+.checkout-steps .active,
+.checkout-steps .done {
+  color: $primary;
+}
+.checkout-steps .active b {
+  color: $white;
+  background: $primary;
+  border-color: $primary;
+}
+.checkout-summary {
+  position: sticky;
+  top: 96px;
+  padding: 30px;
+  background: $white;
+  border: 1px solid #eadfd9;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.checkout-summary-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.checkout-summary-head h2 {
+  font-size: 34px;
+}
+.checkout-summary-head span {
+  color: $text-secondary;
+  font-size: 12px;
+}
+.checkout-summary-items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.checkout-summary-items li {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.checkout-summary-items img {
+  width: 72px;
+  height: 84px;
+  flex: none;
+  object-fit: cover;
+  background: $primary-light;
+}
+.checkout-summary-items li > div {
+  flex: 1;
+  min-width: 0;
+}
+.checkout-summary-items h3 {
+  font: 500 19px $font-secondary;
+}
+.checkout-summary-items p {
+  margin: 4px 0 10px;
+  color: #706663;
+  font-size: 12px;
+}
+.checkout-summary-items strong {
+  white-space: nowrap;
+  font: 500 15px "DM Mono", monospace;
+}
+.checkout-summary .cart-total {
+  margin-top: 0;
+}
+@media (max-width: 800px) {
+  .checkout-page {
+    padding-bottom: 60px;
+  }
+  .checkout-page-grid {
+    grid-template-columns: 1fr;
+    gap: 30px;
+  }
+  .checkout-header {
+    margin-bottom: 26px;
+  }
+  .checkout-summary {
+    position: static;
+    order: -1;
+    padding: 20px;
+    gap: 16px;
+  }
+  .checkout-summary-head h2 {
+    font-size: 28px;
+  }
+  .checkout-summary .product-trust {
+    display: none;
   }
 }
 </style>

@@ -15,6 +15,12 @@ const routes: Array<RouteRecordRaw> = [
     meta: { title: 'Comprar flores | Bruval', description: 'Compra este arreglo floral con envío gratis en Guayaquil.' },
   },
   {
+    path: '/checkout',
+    name: 'Checkout',
+    component: () => import('../views/CheckoutView.vue'),
+    meta: { title: 'Checkout seguro | Bruval', noindex: true },
+  },
+  {
     path: '/pay-response',
     name: 'PaymentResult',
     alias: '/pago/resultado',
