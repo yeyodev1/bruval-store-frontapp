@@ -74,7 +74,6 @@ const sentinel = ref<HTMLElement | null>(null);
 const isCheckoutWhatsAppOpen = ref(false);
 const isCheckoutWhatsAppConfirmationOpen = ref(false);
 const isDeliveryZoneWarningOpen = ref(false);
-const deliveryDetailsConfirmed = ref(false);
 const checkoutStep = ref<"details" | "payment">("details");
 const isSubmitting = ref(false);
 const errorMessage = ref("");
@@ -319,14 +318,39 @@ function guayaquilDate(date: Date) {
 }
 
 const minimumDeliveryDate = computed(() => guayaquilDate(new Date(now.value + 2 * 60 * 60 * 1000)));
-const availableDeliverySlots = computed(() => {
-  if (!checkout.value.date) return [];
+function slotsForDate(date: string) {
+  if (!date) return [];
   const earliest = new Date(now.value + 2 * 60 * 60 * 1000);
   return deliverySlots.filter((slot) => {
     const start = slot.slice(0, 5);
-    return new Date(`${checkout.value.date}T${start}:00-05:00`) >= earliest;
+    return new Date(`${date}T${start}:00-05:00`) >= earliest;
   });
-});
+}
+const availableDeliverySlots = computed(() => slotsForDate(checkout.value.date));
+
+/** Atajos de fecha: "Hoy" solo aparece si todavía queda una franja con 2 horas de margen. */
+const todayDate = computed(() => guayaquilDate(new Date(now.value)));
+const tomorrowDate = computed(() => guayaquilDate(new Date(now.value + 24 * 60 * 60 * 1000)));
+const canDeliverToday = computed(() => slotsForDate(todayDate.value).length > 0);
+const isOtherDeliveryDate = ref(false);
+function chooseDeliveryDate(date: string) {
+  isOtherDeliveryDate.value = false;
+  checkout.value.date = date;
+}
+function formatDeliveryDate(date: string) {
+  if (!date) return "";
+  return new Intl.DateTimeFormat("es-EC", { weekday: "long", day: "numeric", month: "long", timeZone: "America/Guayaquil" })
+    .format(new Date(`${date}T12:00:00-05:00`));
+}
+
+const messageCardIdeas = [
+  "Para la persona que hace mis días mejores. Te amo.",
+  "Porque no necesito una fecha especial para recordarte cuánto te quiero.",
+  "Gracias por estar. Esto es solo un detalle de todo lo que siento por ti.",
+];
+
+/** Si no pegan un link de Maps, se arma uno con la dirección para que el repartidor pueda abrirlo. */
+const deliveryMapUrl = computed(() => checkout.value.mapUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${checkout.value.address}, ${checkout.value.zone}, Guayaquil, Ecuador`)}`);
 
 async function refreshCatalog() {
   const { data } = await storeApi.products(offerId, 1, PAGE_SIZE);
@@ -433,12 +457,13 @@ async function beginPayment() {
         name: `${checkout.value.firstName} ${checkout.value.lastName}`.trim(),
         email: checkout.value.email,
         phone: `${phonePrefix.value}${checkout.value.phone}`,
-        phoneConfirmed: checkout.value.phoneConfirmed,
+        // El aviso junto al teléfono reemplaza la casilla: comprar implica aceptar el contacto para coordinar.
+        phoneConfirmed: true,
       },
       delivery: {
         recipient: checkout.value.recipient,
         address: checkout.value.address,
-        mapUrl: checkout.value.mapUrl,
+        mapUrl: deliveryMapUrl.value,
         zone: checkout.value.zone,
         date: checkout.value.date,
         timeSlot: checkout.value.timeSlot,
@@ -470,12 +495,26 @@ async function beginPayment() {
 }
 
 function confirmDeliveryDetails() {
-  if (!selectedDeliveryZone.value) {
-    errorMessage.value = "Selecciona una zona de entrega para continuar.";
+  const missing = [
+    !selectedDeliveryZone.value && "la zona de entrega",
+    !checkout.value.date && "el día de entrega",
+    !availableDeliverySlots.value.includes(checkout.value.timeSlot) && "el horario",
+  ].filter(Boolean);
+  if (missing.length) {
+    errorMessage.value = `Te falta elegir ${missing.join(", ")}.`;
     return;
   }
-  deliveryDetailsConfirmed.value = false;
+  errorMessage.value = "";
   isDeliveryZoneWarningOpen.value = true;
+}
+
+/** El navegador marca el primer campo vacío; aquí además se explica en palabras qué falta. */
+function explainInvalidField(event: Event) {
+  const field = event.target as HTMLInputElement;
+  // `invalid` se dispara por cada campo vacío: solo se nombra el primero.
+  if (field.form?.querySelector("input:invalid, select:invalid, textarea:invalid") !== field) return;
+  const label = field.closest("label")?.firstChild?.textContent?.trim();
+  errorMessage.value = label ? `Revisa el campo "${label}" para continuar.` : "Completa los datos marcados para continuar.";
 }
 
 function loadPayphoneStyles() {
@@ -1040,113 +1079,163 @@ watch(showFullCatalog, async (val) => {
           <p class="checkout-lead">
             {{
               checkoutStep === "details"
-                ? "Cuéntanos dónde y cuándo debe llegar este gesto. Al finalizar tu compra verás un botón de WhatsApp para hablar con nuestro equipo cuando lo necesites."
-                : "Completa tu pago seguro con PayPhone. Tu selección está reservada."
+                ? "Cuatro datos rápidos: tú, quién lo recibe, cuándo y qué dice la tarjeta. Luego pagas con tarjeta."
+                : `Pedido ${orderNumber} para ${checkout.recipient}, ${formatDeliveryDate(checkout.date)} de ${checkout.timeSlot}. Paga con tarjeta aquí abajo y queda confirmado.`
             }}
           </p>
         </header>
-        <div class="checkout-page-grid">
+        <div class="checkout-page-grid" :class="{ paying: checkoutStep === 'payment' }">
           <div class="checkout-main">
             <form
               v-if="checkoutStep === 'details'"
               class="checkout-form"
               @submit.prevent="confirmDeliveryDetails"
+              @invalid.capture="explainInvalidField"
             >
-              <label
-                >Nombre<input
-                  v-model.trim="checkout.firstName"
-                  required
-                  autocomplete="given-name"
-                  placeholder="Diego" /></label
-              ><label
-                >Apellido<input
-                  v-model.trim="checkout.lastName"
-                  required
-                  autocomplete="family-name"
-                  placeholder="Reyes" /></label
-              ><label class="full"
-                >Correo para confirmaciones<input
-                  v-model.trim="checkout.email"
-                  required
-                  type="email"
-                  autocomplete="email"
-                  placeholder="tu@correo.com" /></label
-              ><label class="full"
-                >Teléfono
-                <div class="phone-field">
-                  <select v-model="phonePrefix" aria-label="Código de país">
-                    <option value="+593">🇪🇨 +593</option>
-                    <option value="+57">🇨🇴 +57</option>
-                    <option value="+51">🇵🇪 +51</option>
-                  </select>
-                  <input
-                    v-model.trim="checkout.phone"
+              <fieldset class="checkout-block">
+                <legend><b>1</b> Tus datos</legend>
+                <p class="checkout-block-hint">Para enviarte la confirmación y avisarte cuando se entregue.</p>
+                <label
+                  >Nombre<input
+                    v-model.trim="checkout.firstName"
                     required
-                    type="tel"
-                    inputmode="tel"
-                    autocomplete="tel-national"
-                    placeholder="999 999 999"
-                  />
+                    autocomplete="given-name"
+                    placeholder="Tu nombre" /></label
+                ><label
+                  >Apellido<input
+                    v-model.trim="checkout.lastName"
+                    required
+                    autocomplete="family-name"
+                    placeholder="Tu apellido" /></label
+                ><label class="full"
+                  >Correo<input
+                    v-model.trim="checkout.email"
+                    required
+                    type="email"
+                    autocomplete="email"
+                    placeholder="tu@correo.com" /></label
+                ><label class="full"
+                  >Tu WhatsApp
+                  <div class="phone-field">
+                    <select v-model="phonePrefix" aria-label="Código de país">
+                      <option value="+593">🇪🇨 +593</option>
+                      <option value="+57">🇨🇴 +57</option>
+                      <option value="+51">🇵🇪 +51</option>
+                    </select>
+                    <input
+                      v-model.trim="checkout.phone"
+                      required
+                      type="tel"
+                      inputmode="tel"
+                      autocomplete="tel-national"
+                      placeholder="099 999 9999"
+                    />
+                  </div>
+                  <span class="field-note">Te escribiremos aquí solo para coordinar la entrega.</span></label
+                >
+              </fieldset>
+
+              <fieldset class="checkout-block">
+                <legend><b>2</b> ¿Quién lo recibe y dónde?</legend>
+                <label class="full"
+                  >Nombre de quien recibe<input
+                    v-model.trim="checkout.recipient"
+                    required
+                    autocomplete="off"
+                    placeholder="Ej.: María Fernanda" /></label
+                ><label class="full"
+                  >Sector de entrega
+                  <select v-model="checkout.zone" required>
+                    <option value="" disabled>Elige el sector</option>
+                    <option v-for="zone in deliveryZones" :key="zone.name" :value="zone.name">{{ zone.name }}</option>
+                  </select>
+                  <span class="field-note">Envío <strong>gratis</strong> a todos los sectores.</span></label
+                ><label class="full"
+                  >Dirección exacta<textarea
+                    v-model.trim="checkout.address"
+                    required
+                    rows="2"
+                    placeholder="Ciudadela, calle, número de casa o edificio y una referencia"
+                  ></textarea></label
+                ><label class="full"
+                  ><span>Ubicación en Google Maps <em>(opcional)</em></span><input
+                    v-model.trim="checkout.mapUrl"
+                    type="url"
+                    placeholder="Pega aquí el link si lo tienes" /></label
+                >
+              </fieldset>
+
+              <fieldset class="checkout-block">
+                <legend><b>3</b> ¿Cuándo lo entregamos?</legend>
+                <p class="checkout-block-hint">Entregamos desde 2 horas después de tu pago.</p>
+                <div class="choice-row full" role="group" aria-label="Día de entrega">
+                  <button
+                    v-if="canDeliverToday"
+                    type="button"
+                    :class="{ selected: !isOtherDeliveryDate && checkout.date === todayDate }"
+                    @click="chooseDeliveryDate(todayDate)"
+                  >Hoy<small>{{ formatDeliveryDate(todayDate) }}</small></button>
+                  <button
+                    type="button"
+                    :class="{ selected: !isOtherDeliveryDate && checkout.date === tomorrowDate }"
+                    @click="chooseDeliveryDate(tomorrowDate)"
+                  >Mañana<small>{{ formatDeliveryDate(tomorrowDate) }}</small></button>
+                  <button
+                    type="button"
+                    :class="{ selected: isOtherDeliveryDate || (checkout.date && checkout.date !== todayDate && checkout.date !== tomorrowDate) }"
+                    @click="isOtherDeliveryDate = true"
+                  >Otra fecha<small>Elige en el calendario</small></button>
                 </div>
-                <span class="phone-confirmation">
-                  <input v-model="checkout.phoneConfirmed" required type="checkbox" />
-                  Confirmo que este es mi número y autorizo que un asesor de Bruval me contacte para coordinar mi pedido.
-                </span></label
-              ><label class="full"
-                >Nombre de quien recibe<input
-                  v-model.trim="checkout.recipient"
-                  required /></label
-              ><label class="full"
-                >Dirección de entrega<textarea
-                  v-model.trim="checkout.address"
-                  required
-                  rows="2"
-                ></textarea></label
-              ><label class="full"
-                >Link de Google Maps<input
-                  v-model.trim="checkout.mapUrl"
-                  required
-                  type="url"
-                  placeholder="https://maps.google.com/..." /></label
-              ><fieldset class="delivery-zone full">
-                <legend>Zona de entrega</legend>
-                <p>¿A dónde llevamos tus flores? Selecciona tu sector: el envío es <strong>gratis</strong> en todas nuestras zonas.</p>
-                <div class="delivery-zone-options" role="radiogroup" aria-label="Zona de entrega">
-                  <label v-for="zone in deliveryZones" :key="zone.name" :class="{ selected: checkout.zone === zone.name }">
-                    <input v-model="checkout.zone" required type="radio" name="delivery-zone" :value="zone.name" />
-                    <span>{{ zone.name }}</span><strong class="free-shipping-value">Gratis</strong>
-                  </label>
+                <label
+                  v-if="isOtherDeliveryDate || (checkout.date && checkout.date !== todayDate && checkout.date !== tomorrowDate)"
+                  class="full"
+                  >Fecha<input
+                    v-model="checkout.date"
+                    required
+                    type="date"
+                    :min="minimumDeliveryDate" /></label
+                >
+                <div v-if="checkout.date" class="choice-row slots full" role="group" aria-label="Horario de entrega">
+                  <button
+                    v-for="slot in availableDeliverySlots"
+                    :key="slot"
+                    type="button"
+                    :class="{ selected: checkout.timeSlot === slot }"
+                    @click="checkout.timeSlot = slot"
+                  >{{ slot }}</button>
+                  <p v-if="!availableDeliverySlots.length" class="field-note">Ya no quedan horarios para ese día. Elige otra fecha.</p>
                 </div>
-              </fieldset
-              ><label class="delivery-date"
-                >Fecha de entrega
-                <span>Disponible con mínimo 2 horas de anticipación</span><input
-                  v-model="checkout.date"
-                  required
-                  type="date"
-                  :min="minimumDeliveryDate" /></label
-              ><label
-                >Franja horaria<select v-model="checkout.timeSlot" required :disabled="!checkout.date || !availableDeliverySlots.length">
-                  <option v-if="!checkout.date" value="">Selecciona una fecha</option>
-                  <option v-else-if="!availableDeliverySlots.length" value="">No hay horarios disponibles</option>
-                  <option v-for="slot in availableDeliverySlots" :key="slot" :value="slot">{{ slot }}</option>
-                </select></label
-              ><label class="full"
-                >Tarjeta de memoria<textarea
-                  v-model.trim="checkout.messageCard"
-                  required
-                  rows="3"
-                  placeholder="Escribe el mensaje que acompañará las flores..."
-                ></textarea>
-              </label>
-              <p v-if="errorMessage" class="error full">{{ errorMessage }}</p>
+              </fieldset>
+
+              <fieldset class="checkout-block">
+                <legend><b>4</b> Mensaje de la tarjeta</legend>
+                <p class="checkout-block-hint">Lo escribimos a mano en la tarjeta que acompaña tu regalo. ¿No sabes qué poner? Toca una idea y edítala.</p>
+                <div class="message-ideas full">
+                  <button v-for="idea in messageCardIdeas" :key="idea" type="button" @click="checkout.messageCard = idea">“{{ idea }}”</button>
+                </div>
+                <label class="full"
+                  >Tu mensaje<textarea
+                    v-model.trim="checkout.messageCard"
+                    required
+                    rows="3"
+                    maxlength="240"
+                    placeholder="Escribe tu mensaje y firma con tu nombre"
+                  ></textarea>
+                </label>
+              </fieldset>
+
+              <p v-if="errorMessage" class="error full" role="alert">{{ errorMessage }}</p>
               <button
-                class="primary-button full"
-                :disabled="isSubmitting || !selectedDeliveryZone"
+                class="primary-button full checkout-submit"
+                :disabled="isSubmitting"
                 type="submit"
               >
-                {{ isSubmitting ? "Preparando pago..." : "Ir al pago seguro" }}
+                {{ isSubmitting ? "Preparando pago..." : `Revisar y pagar ${formatPrice(total)}` }}
                 <span>→</span>
+              </button>
+              <p class="checkout-secure-note full">Pago seguro con tarjeta por PayPhone. Aún no se te cobra: primero revisas tu pedido.</p>
+              <button class="whatsapp-button full" type="button" @click="isCheckoutWhatsAppOpen = true">
+                ¿Prefieres comprar por WhatsApp? ↗
               </button>
             </form>
             <div v-else class="payment-step">
@@ -1196,9 +1285,6 @@ watch(showFullCatalog, async (val) => {
               <li><b>Envío gratis</b> en todas nuestras zonas de Guayaquil.</li>
               <li><b>Tarjeta con tu mensaje</b> incluida en cada arreglo.</li>
             </ul>
-            <button v-if="checkoutStep === 'details'" class="whatsapp-button" type="button" @click="isCheckoutWhatsAppOpen = true">
-              Prefiero terminar por WhatsApp ↗
-            </button>
           </aside>
         </div>
       </template>
@@ -1309,27 +1395,20 @@ watch(showFullCatalog, async (val) => {
     <Transition name="modal">
       <aside v-if="isDeliveryZoneWarningOpen" class="modal delivery-warning-modal" role="dialog" aria-modal="true" aria-labelledby="delivery-warning-title">
         <button class="close" type="button" aria-label="Cerrar" @click="isDeliveryZoneWarningOpen = false">×</button>
-        <p class="eyebrow">Confirma tu entrega</p>
-        <h2 id="delivery-warning-title">Revisa la zona y la dirección.</h2>
-        <p>Antes de pagar, confirma la zona, dirección y medidas de los arreglos de tu selección.</p>
-        <div class="delivery-confirmation-summary">
-          <p><strong>Zona:</strong> {{ checkout.zone }}</p>
-          <p><strong>Dirección:</strong> {{ checkout.address }}</p>
-          <div>
-            <strong>Medidas de tu selección</strong>
-            <ul>
-              <li v-for="item in cart" :key="item._id"><span>{{ item.name }}</span><b>{{ item.dimensions }}</b></li>
-            </ul>
-          </div>
-        </div>
-        <p class="delivery-warning-notice">El envío es gratis, pero la zona define la ruta de entrega: si seleccionas una zona incorrecta, Bruval no asegura la entrega en la franja elegida ni el reembolso del pedido.</p>
-        <label class="delivery-confirmation-check" :class="{ checked: deliveryDetailsConfirmed }">
-          <input v-model="deliveryDetailsConfirmed" type="checkbox" />
-          <span><strong>Estoy de acuerdo con la dirección, zona y medidas indicadas.</strong><small>Confirmo estos datos para evitar malentendidos en la preparación y entrega.</small></span>
-        </label>
+        <p class="eyebrow">Último vistazo</p>
+        <h2 id="delivery-warning-title">¿Todo bien?</h2>
+        <dl class="delivery-review">
+          <div><dt>Regalo</dt><dd><span v-for="item in cart" :key="item._id">{{ item.quantity }} × {{ item.name }}</span></dd></div>
+          <div><dt>Para</dt><dd>{{ checkout.recipient }}</dd></div>
+          <div><dt>Dónde</dt><dd>{{ checkout.address }}<small>{{ checkout.zone }}</small></dd></div>
+          <div><dt>Cuándo</dt><dd>{{ formatDeliveryDate(checkout.date) }}<small>{{ checkout.timeSlot }}</small></dd></div>
+          <div><dt>Tarjeta</dt><dd>“{{ checkout.messageCard }}”</dd></div>
+          <div class="delivery-review-total"><dt>Total</dt><dd>{{ formatPrice(total) }} <small>Envío gratis</small></dd></div>
+        </dl>
+        <p class="delivery-warning-notice">Revisa que el sector sea el correcto: define la ruta del repartidor. Si no coincide con la dirección, no podemos asegurar la entrega en el horario elegido.</p>
         <div class="delivery-warning-actions">
-          <button class="delivery-warning-back" type="button" @click="isDeliveryZoneWarningOpen = false">Revisar mis datos</button>
-          <button class="primary-button" :disabled="!deliveryDetailsConfirmed" type="button" @click="isDeliveryZoneWarningOpen = false; beginPayment()">Confirmo y continúo al pago <span>→</span></button>
+          <button class="primary-button" :disabled="isSubmitting" type="button" @click="isDeliveryZoneWarningOpen = false; beginPayment()">Sí, ir a pagar {{ formatPrice(total) }} <span>→</span></button>
+          <button class="delivery-warning-back" type="button" @click="isDeliveryZoneWarningOpen = false">Corregir algo</button>
         </div>
       </aside>
     </Transition>
@@ -2166,13 +2245,63 @@ footer .brand {
 }
 .delivery-warning-actions {
   display: grid;
-  grid-template-columns: 1fr 1.35fr;
   gap: 10px;
-  margin-top: 26px;
+  margin-top: 22px;
+}
+.delivery-warning-modal .delivery-warning-actions {
+  position: sticky;
+  bottom: -36px;
+  margin: 18px -6px -36px;
+  padding: 14px 6px 28px;
+  background: $white;
+  box-shadow: 0 -12px 16px -12px rgba($primary-dark, 0.18);
 }
 .delivery-warning-actions .primary-button {
-  padding: 13px 12px;
-  font-size: 11px;
+  min-height: 52px;
+  padding: 13px 16px;
+  font-size: 13px;
+}
+.delivery-review {
+  margin: 20px 0 0;
+  border-top: 1px solid #eadfd9;
+}
+.delivery-review > div {
+  padding: 11px 0;
+  border-bottom: 1px solid #eadfd9;
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 12px;
+}
+.delivery-review dt {
+  padding-top: 3px;
+  color: $text-secondary;
+  font: 600 10px $font-principal;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.delivery-review dd {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: $primary-dark;
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.delivery-review small {
+  color: $text-secondary;
+  font-size: 12px;
+}
+.delivery-review-total dd {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 10px;
+  font: 600 18px "DM Mono", monospace;
+}
+.delivery-review-total small {
+  color: #2f6b45;
+  font-family: $font-principal;
 }
 .delivery-warning-back {
   border: 1px solid $primary;
@@ -2234,7 +2363,8 @@ footer .brand {
   gap: 16px;
 }
 
-.checkout-form > label {
+.checkout-form > label,
+.checkout-block > label {
   width: calc(50% - 8px);
   display: flex;
   flex-direction: column;
@@ -2248,7 +2378,138 @@ footer .brand {
   width: 100%;
 }
 .checkout-form .primary-button.full {
-  margin-top: 14px;
+  margin-top: 6px;
+}
+.checkout-block {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 22px;
+  box-sizing: border-box;
+  border: 1px solid #eadfd9;
+  background: $white;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 16px;
+}
+.checkout-block legend {
+  float: left;
+  width: 100%;
+  margin-bottom: 2px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: $primary-dark;
+  font: 600 17px $font-principal;
+}
+.checkout-block legend b {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: $white;
+  background: $primary;
+  font-size: 12px;
+}
+.checkout-block-hint {
+  width: 100%;
+  margin-top: -6px;
+  color: $text-secondary;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.checkout-block > label em {
+  color: #a3958f;
+  font-style: normal;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.field-note {
+  color: $text-secondary;
+  font-size: 12px;
+  letter-spacing: 0;
+  line-height: 1.4;
+  text-transform: none;
+}
+.field-note strong {
+  color: #2f6b45;
+}
+.choice-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.choice-row button {
+  min-height: 58px;
+  padding: 10px;
+  border: 1px solid #d5dde6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: $primary-dark;
+  background: $white;
+  font: 600 14px $font-principal;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+.choice-row button small {
+  color: $text-secondary;
+  font-size: 11px;
+  font-weight: 500;
+}
+.choice-row button:hover {
+  border-color: rgba($primary, 0.55);
+}
+.choice-row button.selected {
+  border-color: $primary;
+  background: rgba($primary, 0.06);
+  box-shadow: inset 0 0 0 1px $primary;
+}
+.choice-row.slots button {
+  min-height: 48px;
+  font: 600 13px "DM Mono", monospace;
+}
+.choice-row .field-note {
+  grid-column: 1 / -1;
+  color: #9a4f58;
+}
+.message-ideas {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.message-ideas button {
+  padding: 11px 14px;
+  border: 1px dashed rgba($primary, 0.35);
+  color: $primary-dark;
+  background: #f8fafc;
+  font-size: 13px;
+  font-style: italic;
+  line-height: 1.4;
+  text-align: left;
+  transition: border-color 0.2s, background 0.2s;
+}
+.message-ideas button:hover {
+  border-color: $primary;
+  background: rgba($primary, 0.05);
+}
+.checkout-submit {
+  min-height: 56px;
+  font-size: 14px;
+}
+.checkout-secure-note {
+  margin-top: -6px;
+  color: $text-secondary;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+.checkout-form .whatsapp-button {
+  margin-top: 0;
 }
 .delivery-zone {
   min-width: 0;
@@ -2540,7 +2801,8 @@ textarea {
   .product-image {
     height: 340px;
   }
-  .checkout-form > label {
+  .checkout-form > label,
+  .checkout-block > label {
     width: 100%;
   }
 }
@@ -3273,6 +3535,11 @@ textarea {
   .checkout-summary {
     position: static;
     order: -1;
+  }
+  .checkout-page-grid.paying .checkout-summary {
+    order: 0;
+  }
+  .checkout-summary {
     padding: 20px;
     gap: 16px;
   }
