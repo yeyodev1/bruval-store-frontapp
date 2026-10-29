@@ -8,6 +8,7 @@ import {
   type Product,
 } from "@/services/storeApi";
 import { metaTrackingSnapshot, productParams, trackMeta } from "@/services/metaPixel";
+import { landingBySlug } from "@/config/landings";
 
 /**
  * `slug`: el componente se renderiza como página de compra (/producto/:slug).
@@ -56,6 +57,9 @@ const isProductLoading = ref(false);
 const productError = ref("");
 const productQuantity = ref(1);
 const isProductPage = computed(() => Boolean(props.slug));
+/** Landing de campaña: mismo flujo de compra, con fotos y textos propios. */
+const landing = computed(() => landingBySlug(props.slug));
+const activeLandingImage = ref(0);
 const isCheckoutPage = computed(() => Boolean(props.checkoutPage));
 const loadedImages = ref(new Set<string>());
 const showFullCatalog = ref(false);
@@ -118,14 +122,14 @@ const formatPrice = (value: number) => `$${value.toFixed(2)}`;
 function productLink(product: Pick<Product, "slug" | "sku">) {
   return { path: `/producto/${product.slug || product.sku}`, query: { oferta: offerId } };
 }
-const productCategory = computed(() => pageProduct.value?.categories?.[0] || "Colección");
+const productCategory = computed(() => landing.value ? "Preservados" : pageProduct.value?.categories?.[0] || "Colección");
 const productWhatsApp = computed(() => {
   const product = pageProduct.value;
   if (!product) return "https://wa.me/593999480437";
   const message = [
     `Hola, equipo Bruval. Quiero este producto: ${product.name} (${product.sku}) por ${formatPrice(product.price)}.`,
     `Cantidad: ${productQuantity.value}`,
-    `Enlace: ${window.location.origin}/producto/${product.slug || product.sku}`,
+    `Enlace: ${window.location.origin}/producto/${landing.value?.slug || product.slug || product.sku}`,
     "",
     "¿Me ayudan a coordinar la compra y la entrega?",
   ].join("\n");
@@ -147,16 +151,18 @@ function setMetaTag(selector: string, attribute: string, value: string) {
 }
 
 function applyProductSeo(product: Product) {
-  const title = `${product.name} | Comprar en Bruval`;
-  const description = `${product.name} (${product.sku}, ${product.dimensions}). ${product.description}`.slice(0, 160);
-  const url = `${window.location.origin}/producto/${product.slug || product.sku}`;
+  const page = landing.value;
+  const title = `${page?.name || product.name} | Comprar en Bruval`;
+  const description = page?.seoDescription || `${product.name} (${product.sku}, ${product.dimensions}). ${product.description}`.slice(0, 160);
+  const url = `${window.location.origin}/producto/${page?.slug || product.slug || product.sku}`;
+  const image = page ? `${window.location.origin}${page.images[0]?.src}` : productImage(product.image, 1200, 1200);
   document.title = title;
   setMetaTag('meta[name="description"]', "content", description);
   setMetaTag('meta[property="og:title"]', "content", title);
   setMetaTag('meta[property="og:description"]', "content", description);
   setMetaTag('meta[property="og:url"]', "content", url);
   setMetaTag('meta[property="og:type"]', "content", "product");
-  setMetaTag('meta[property="og:image"]', "content", productImage(product.image, 1200, 1200));
+  setMetaTag('meta[property="og:image"]', "content", image);
   setMetaTag('meta[name="twitter:card"]', "content", "summary_large_image");
   setMetaTag('meta[name="twitter:title"]', "content", title);
   setMetaTag('meta[name="twitter:description"]', "content", description);
@@ -173,10 +179,10 @@ function applyProductSeo(product: Product) {
   schema.textContent = JSON.stringify({
     "@context": "https://schema.org",
     "@type": "Product",
-    name: product.name,
+    name: page?.name || product.name,
     sku: product.sku,
-    image: [productImage(product.image, 1200, 1200)],
-    description: product.description,
+    image: [image],
+    description: page?.lead || product.description,
     brand: { "@type": "Brand", name: "Bruval" },
     category: product.categories?.[0],
     offers: {
@@ -200,8 +206,9 @@ async function loadProduct(slug: string) {
   isProductLoading.value = true;
   productError.value = "";
   productQuantity.value = 1;
+  activeLandingImage.value = 0;
   try {
-    const { data } = await storeApi.product(slug, offerId);
+    const { data } = await storeApi.product(landingBySlug(slug)?.productSlug || slug, offerId);
     pageProduct.value = data.product;
     relatedProducts.value = data.related;
     offer.value = data.offer;
@@ -800,7 +807,7 @@ watch(showFullCatalog, async (val) => {
         <span aria-hidden="true">/</span>
         <RouterLink :to="{ path: '/', query: { oferta: offerId }, hash: '#coleccion' }">{{ productCategory }}</RouterLink>
         <span aria-hidden="true">/</span>
-        <b>{{ pageProduct?.name || "Arreglo" }}</b>
+        <b>{{ landing?.name || pageProduct?.name || "Arreglo" }}</b>
       </nav>
       <div v-if="isOfferActive" class="offer-banner product-offer">
         <span>Enlace privado · precios especiales</span>
@@ -824,21 +831,48 @@ watch(showFullCatalog, async (val) => {
       </div>
 
       <div v-else-if="pageProduct" class="product-page-grid">
-        <div class="product-gallery image-loading" :class="[{ 'image-ready': loadedImages.has(pageProduct.image) }, productScaleClass(pageProduct)]">
+        <div v-if="landing" class="landing-gallery">
+          <div class="product-gallery landing-photo">
+            <img
+              :src="landing.images[activeLandingImage]?.src"
+              :alt="landing.images[activeLandingImage]?.alt"
+              fetchpriority="high"
+            />
+            <b v-if="pageProduct.webExclusive" class="web-exclusive">Web exclusivo · {{ pageProduct.discountPercentage }}% OFF</b>
+          </div>
+          <div class="landing-thumbs" role="group" aria-label="Fotos del producto">
+            <button
+              v-for="(image, index) in landing.images"
+              :key="image.src"
+              type="button"
+              :class="{ active: index === activeLandingImage }"
+              :aria-label="`Ver foto ${index + 1}`"
+              :aria-pressed="index === activeLandingImage"
+              @click="activeLandingImage = index"
+            >
+              <img :src="image.src" alt="" loading="lazy" />
+            </button>
+          </div>
+        </div>
+        <div v-else class="product-gallery image-loading" :class="[{ 'image-ready': loadedImages.has(pageProduct.image) }, productScaleClass(pageProduct)]">
           <img :src="productImage(pageProduct.image, 1200, 1300)" :alt="pageProduct.name" fetchpriority="high" @load="markImageLoaded(pageProduct.image)" />
           <b v-if="pageProduct.webExclusive" class="web-exclusive">Web exclusivo · {{ pageProduct.discountPercentage }}% OFF</b>
           <small class="product-reference">Imagen referencial</small>
         </div>
 
         <div class="product-buy">
-          <p class="eyebrow">{{ pageProduct.palette }} · {{ pageProduct.sku }}</p>
-          <h1>{{ pageProduct.name }}</h1>
+          <p class="eyebrow">{{ landing?.eyebrow || `${pageProduct.palette} · ${pageProduct.sku}` }}</p>
+          <h1>{{ landing?.name || pageProduct.name }}</h1>
+          <p v-if="landing" class="landing-lead">{{ landing.lead }}</p>
           <div class="product-buy-price">
             <del v-if="pageProduct.regularPrice">{{ formatPrice(pageProduct.regularPrice) }}</del>
             <strong>{{ formatPrice(pageProduct.price) }}</strong>
             <span v-if="pageProduct.regularPrice" class="product-saving">Ahorras {{ formatPrice(pageProduct.regularPrice - pageProduct.price) }}</span>
           </div>
           <p class="product-buy-shipping">Envío <strong>gratis</strong> en Guayaquil · Entrega desde 2 horas · Pago seguro con PayPhone</p>
+          <ul v-if="landing" class="landing-highlights">
+            <li v-for="highlight in landing.highlights" :key="highlight">{{ highlight }}</li>
+          </ul>
 
           <div class="product-buy-actions">
             <div class="quantity-stepper" role="group" aria-label="Cantidad">
@@ -856,7 +890,14 @@ watch(showFullCatalog, async (val) => {
             Quiero este producto por WhatsApp
           </a>
 
-          <dl class="product-specs">
+          <div v-if="landing" class="landing-includes">
+            <h2>Qué recibe</h2>
+            <ul>
+              <li v-for="item in landing.includes" :key="item">{{ item }}</li>
+            </ul>
+            <p v-if="!pageProduct.dimensions.toLowerCase().includes('confirmar')">Medidas: {{ pageProduct.dimensions }}</p>
+          </div>
+          <dl v-if="!landing" class="product-specs">
             <div>
               <dt>Medidas</dt>
               <dd>{{ pageProduct.dimensions }}</dd>
@@ -870,8 +911,8 @@ watch(showFullCatalog, async (val) => {
               <dd>{{ pageProduct.sku }}</dd>
             </div>
           </dl>
-          <p class="product-buy-description">{{ pageProduct.description }}</p>
-          <p class="image-reference-note">Imagen referencial. La composición puede variar según la disponibilidad de flores.</p>
+          <p v-if="!landing" class="product-buy-description">{{ pageProduct.description }}</p>
+          <p v-if="!landing" class="image-reference-note">Imagen referencial. La composición puede variar según la disponibilidad de flores.</p>
           <ul class="product-trust">
             <li><b>Pago seguro</b> con tarjeta a través de PayPhone.</li>
             <li><b>Entrega coordinada</b> por WhatsApp con un asesor Bruval.</li>
@@ -880,7 +921,56 @@ watch(showFullCatalog, async (val) => {
         </div>
       </div>
 
-      <div v-if="relatedProducts.length" class="related">
+      <template v-if="landing && pageProduct">
+        <section class="landing-reasons" aria-labelledby="landing-reasons-title">
+          <p class="eyebrow">Por qué funciona</p>
+          <h2 id="landing-reasons-title">{{ landing.reasonsTitle }}</h2>
+          <div class="landing-reasons-grid">
+            <article v-for="(reason, index) in landing.reasons" :key="reason.title">
+              <span>0{{ index + 1 }}</span>
+              <h3>{{ reason.title }}</h3>
+              <p>{{ reason.text }}</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="landing-steps" aria-labelledby="landing-steps-title">
+          <p class="eyebrow">Así de simple</p>
+          <h2 id="landing-steps-title">Tú pides, nosotros<br />nos encargamos.</h2>
+          <ol>
+            <li><b>Compra aquí</b> con tarjeta por PayPhone, o escríbenos por WhatsApp si prefieres transferencia.</li>
+            <li><b>Elige día y hora</b> de entrega y escribe el mensaje de la tarjeta.</li>
+            <li><b>Lo entregamos</b> en Guayaquil, Samborondón o Durán, desde 2 horas después de tu pago. Envío gratis.</li>
+          </ol>
+        </section>
+
+        <section class="landing-faq" aria-labelledby="landing-faq-title">
+          <p class="eyebrow">Preguntas frecuentes</p>
+          <h2 id="landing-faq-title">Antes de comprar.</h2>
+          <details v-for="faq in landing.faqs" :key="faq.question">
+            <summary>{{ faq.question }}</summary>
+            <p>{{ faq.answer }}</p>
+          </details>
+        </section>
+
+        <section class="landing-final">
+          <img :src="landing.images[2]?.src" :alt="landing.images[2]?.alt" loading="lazy" />
+          <div>
+            <p class="eyebrow">{{ landing.eyebrow }}</p>
+            <h2>{{ landing.name }}</h2>
+            <div class="product-buy-price">
+              <del v-if="pageProduct.regularPrice">{{ formatPrice(pageProduct.regularPrice) }}</del>
+              <strong>{{ formatPrice(pageProduct.price) }}</strong>
+            </div>
+            <button class="primary-button" type="button" @click="buyNow(pageProduct, productQuantity)">
+              Comprar ahora · {{ formatPrice(productTotal) }} <span>→</span>
+            </button>
+            <a class="whatsapp-product" :href="productWhatsApp" target="_blank" rel="noopener" @click="trackProductWhatsApp">Prefiero comprar por WhatsApp</a>
+          </div>
+        </section>
+      </template>
+
+      <div v-if="relatedProducts.length && !landing" class="related">
         <div class="section-heading">
           <div>
             <p class="eyebrow">Sigue explorando</p>
@@ -919,7 +1009,7 @@ watch(showFullCatalog, async (val) => {
 
       <div v-if="pageProduct" class="mobile-buy-bar" :class="{ hidden: isCartOpen }">
         <div>
-          <span>{{ pageProduct.name }}</span>
+          <span>{{ landing?.name || pageProduct.name }}</span>
           <strong>{{ formatPrice(productTotal) }}</strong>
         </div>
         <button class="primary-button" type="button" @click="buyNow(pageProduct, productQuantity)">Comprar ahora <span>→</span></button>
@@ -2721,8 +2811,264 @@ textarea {
 .related-list {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
+/* ---------- Landings de campaña (/producto/:slug con contenido propio) ---------- */
+.landing-gallery {
+  position: sticky;
+  top: 92px;
+  display: grid;
+  gap: 10px;
+}
+.landing-gallery .product-gallery {
+  position: relative;
+  top: 0;
+  aspect-ratio: 4 / 5;
+  background: #f4f2f0;
+}
+.landing-gallery .product-gallery img {
+  object-fit: cover;
+}
+.landing-thumbs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+.landing-thumbs button {
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1px solid transparent;
+  background: #f4f2f0;
+  opacity: 0.6;
+  transition: opacity 0.2s, border-color 0.2s;
+}
+.landing-thumbs button:hover,
+.landing-thumbs button.active {
+  opacity: 1;
+}
+.landing-thumbs button.active {
+  border-color: $primary-dark;
+}
+.landing-thumbs img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+.landing-lead {
+  margin-top: 18px;
+  color: #483f3d;
+  font-size: 17px;
+  line-height: 1.6;
+}
+.landing-highlights {
+  margin: 0 0 24px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.landing-highlights li {
+  padding: 7px 11px;
+  border: 1px solid rgba($primary, 0.18);
+  color: $primary-dark;
+  font: 600 11px $font-principal;
+  letter-spacing: 0.04em;
+}
+.landing-includes {
+  margin: 30px 0 24px;
+  padding: 22px;
+  background: $primary-light;
+}
+.landing-includes h2 {
+  margin-bottom: 14px;
+  font: 600 12px $font-principal;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.landing-includes ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+.landing-includes li {
+  position: relative;
+  padding-left: 22px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.landing-includes li::before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  color: #2f6b45;
+  font-weight: 700;
+}
+.landing-includes > p {
+  margin-top: 14px;
+  color: $text-secondary;
+  font: 500 12px "DM Mono", monospace;
+}
+.landing-reasons,
+.landing-steps,
+.landing-faq,
+.landing-final {
+  margin-top: clamp(64px, 9vw, 120px);
+}
+.landing-reasons h2,
+.landing-steps h2,
+.landing-faq h2,
+.landing-final h2 {
+  font-size: clamp(36px, 5vw, 60px);
+  line-height: 0.95;
+}
+.landing-reasons-grid {
+  margin-top: 36px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(18px, 3vw, 36px);
+}
+.landing-reasons-grid article {
+  padding-top: 18px;
+  border-top: 1px solid rgba($primary, 0.25);
+}
+.landing-reasons-grid span {
+  color: #a9473f;
+  font: 600 12px "DM Mono", monospace;
+}
+.landing-reasons-grid h3 {
+  margin: 12px 0 10px;
+  font: 600 19px/1.25 $font-principal;
+}
+.landing-reasons-grid p {
+  color: $text-secondary;
+  font-size: 15px;
+  line-height: 1.6;
+}
+.landing-steps {
+  padding: clamp(36px, 6vw, 72px);
+  color: $white;
+  background: $primary-dark;
+}
+.landing-steps .eyebrow {
+  color: $primary-light;
+}
+.landing-steps ol {
+  margin: 34px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(18px, 3vw, 40px);
+}
+.landing-steps li {
+  counter-increment: step;
+  color: rgba($white, 0.78);
+  font-size: 15px;
+  line-height: 1.6;
+}
+.landing-steps li::before {
+  content: "0" counter(step);
+  display: block;
+  margin-bottom: 12px;
+  color: $primary-light;
+  font: 600 12px "DM Mono", monospace;
+}
+.landing-steps li b {
+  display: block;
+  margin-bottom: 6px;
+  color: $white;
+  font-size: 17px;
+}
+.landing-faq {
+  max-width: 820px;
+}
+.landing-faq h2 {
+  margin-bottom: 26px;
+}
+.landing-faq details {
+  border-top: 1px solid rgba($primary, 0.18);
+}
+.landing-faq details:last-of-type {
+  border-bottom: 1px solid rgba($primary, 0.18);
+}
+.landing-faq summary {
+  padding: 20px 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  font: 600 16px $font-principal;
+  cursor: pointer;
+  list-style: none;
+}
+.landing-faq summary::-webkit-details-marker {
+  display: none;
+}
+.landing-faq summary::after {
+  content: "+";
+  color: $primary;
+  font-size: 20px;
+  line-height: 1;
+}
+.landing-faq details[open] summary::after {
+  content: "−";
+}
+.landing-faq details p {
+  padding: 0 0 22px;
+  color: $text-secondary;
+  font-size: 15px;
+  line-height: 1.65;
+}
+.landing-final {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(28px, 5vw, 72px);
+  background: $primary-light;
+}
+.landing-final img {
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  display: block;
+  object-fit: cover;
+}
+.landing-final > div {
+  padding: 32px clamp(24px, 5vw, 64px) 32px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.landing-final .primary-button {
+  min-height: 52px;
+  font-size: 13px;
+}
+.landing-final .whatsapp-product {
+  margin-top: 12px;
+}
 .mobile-buy-bar {
   display: none;
+}
+@media (max-width: 800px) {
+  .landing-gallery {
+    position: static;
+  }
+  .landing-gallery .product-gallery {
+    aspect-ratio: 4 / 5;
+  }
+  .landing-reasons-grid,
+  .landing-steps ol,
+  .landing-final {
+    grid-template-columns: 1fr;
+  }
+  .landing-final > div {
+    padding: 0 22px 32px;
+  }
+  .landing-final .primary-button,
+  .landing-final .whatsapp-product {
+    width: 100%;
+  }
 }
 @media (max-width: 800px) {
   .product-page {
