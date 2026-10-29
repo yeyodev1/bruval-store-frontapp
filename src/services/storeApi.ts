@@ -20,11 +20,13 @@ export interface Product {
 
 export interface CartItem extends Product {
   quantity: number
+  /** Color elegido en la landing (p. ej. "Azul"); el mismo producto en otro color es otra línea. */
+  variant?: string
 }
 
 export interface CheckoutPayload {
   offerId: string
-  items: Array<{ productId: string; quantity: number }>
+  items: Array<{ productId: string; quantity: number; variant?: string }>
   customer: { name: string; email: string; phone: string; phoneConfirmed: boolean }
   delivery: { recipient: string; address: string; mapUrl: string; zone: string; date: string; timeSlot: string; messageCard: string }
   tracking?: { fbp?: string; fbc?: string; eventSourceUrl?: string }

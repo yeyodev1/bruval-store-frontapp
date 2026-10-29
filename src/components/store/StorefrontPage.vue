@@ -60,6 +60,7 @@ const isProductPage = computed(() => Boolean(props.slug));
 /** Landing de campaña: mismo flujo de compra, con fotos y textos propios. */
 const landing = computed(() => landingBySlug(props.slug));
 const activeLandingImage = ref(0);
+const selectedColor = ref("");
 const isCheckoutPage = computed(() => Boolean(props.checkoutPage));
 const loadedImages = ref(new Set<string>());
 const showFullCatalog = ref(false);
@@ -127,6 +128,7 @@ const productWhatsApp = computed(() => {
   if (!product) return "https://wa.me/593999480437";
   const message = [
     `Hola, equipo Bruval. Quiero este producto: ${product.name} (${product.sku}) por ${formatPrice(product.price)}.`,
+    selectedColor.value ? `Color: ${selectedColor.value}` : "",
     `Cantidad: ${productQuantity.value}`,
     `Enlace: ${window.location.origin}/producto/${landing.value?.slug || product.slug || product.sku}`,
     "",
@@ -282,7 +284,7 @@ function markImageLoaded(src: string) {
 const offerRemaining = computed(() => Math.max(0, new Date(offer.value?.expiresAt || 0).getTime() - now.value));
 const isOfferActive = computed(() => Boolean(offer.value?.active && offerRemaining.value > 0));
 const checkoutWhatsApp = computed(() => {
-  const items = cart.value.map((item) => `- ${item.quantity} x ${item.name}`).join("\n");
+  const items = cart.value.map((item) => `- ${item.quantity} x ${itemLabel(item)}`).join("\n");
   const message = [
     "Hola, equipo Bruval. Estoy preparando una compra y me gustaría que me acompañen.",
     "",
@@ -361,7 +363,7 @@ async function refreshCatalog() {
   catalogTotal.value = data.pagination?.total ?? 0;
   cart.value = cart.value.map((item) => {
     const product = data.products.find((entry) => entry._id === item._id);
-    return product ? { ...product, quantity: item.quantity } : item;
+    return product ? { ...product, quantity: item.quantity, variant: item.variant } : item;
   });
 }
 
@@ -383,27 +385,37 @@ async function loadMore() {
   }
 }
 
-function addToCart(product: Product, quantity = 1, openCart = true) {
+/** Un mismo producto en distinto color va en líneas separadas del carrito. */
+function cartKey(item: { _id: string; variant?: string }) {
+  return item.variant ? `${item._id}:${item.variant}` : item._id;
+}
+
+function itemLabel(item: CartItem) {
+  return item.variant ? `${item.name} · ${item.variant}` : item.name;
+}
+
+function addToCart(product: Product, quantity = 1, openCart = true, variant?: string) {
   const amount = Math.max(1, Math.min(10, quantity));
-  const current = cart.value.find((item) => item._id === product._id);
+  const key = cartKey({ _id: product._id, variant });
+  const current = cart.value.find((item) => cartKey(item) === key);
   if (current) current.quantity = Math.min(10, current.quantity + amount);
-  else cart.value.push({ ...product, quantity: amount });
+  else cart.value.push({ ...product, quantity: amount, ...(variant ? { variant } : {}) });
   if (openCart) isCartOpen.value = true;
   trackMeta("AddToCart", productParams(product, amount));
 }
 
 /** Compra directa: agrega al carrito y va al checkout sin pasar por el carrito. */
-function buyNow(product: Product, quantity = 1) {
-  addToCart(product, quantity, false);
+function buyNow(product: Product, quantity = 1, variant?: string) {
+  addToCart(product, quantity, false, variant);
   openCheckout();
 }
 
-function changeQuantity(id: string, amount: number) {
-  const item = cart.value.find((entry) => entry._id === id);
+function changeQuantity(key: string, amount: number) {
+  const item = cart.value.find((entry) => cartKey(entry) === key);
   if (!item) return;
   item.quantity += amount;
   if (item.quantity < 1)
-    cart.value = cart.value.filter((entry) => entry._id !== id);
+    cart.value = cart.value.filter((entry) => cartKey(entry) !== key);
 }
 
 function openCheckout() {
@@ -452,6 +464,7 @@ async function beginPayment() {
       items: cart.value.map((item) => ({
         productId: item._id,
         quantity: item.quantity,
+        variant: item.variant,
       })),
       customer: {
         name: `${checkout.value.firstName} ${checkout.value.lastName}`.trim(),
@@ -621,6 +634,10 @@ onUnmounted(() => {
 watch(() => props.slug, (slug) => {
   if (slug) void loadProduct(slug);
 });
+
+watch(landing, (page) => {
+  selectedColor.value = page?.colors?.[0]?.name ?? "";
+}, { immediate: true });
 
 watch(cart, (value) => localStorage.setItem("bruval-cart", JSON.stringify(value)), { deep: true });
 watch(checkout, (value) => localStorage.setItem("bruval-checkout", JSON.stringify(value)), { deep: true });
@@ -913,17 +930,33 @@ watch(showFullCatalog, async (val) => {
             <li v-for="highlight in landing.highlights" :key="highlight">{{ highlight }}</li>
           </ul>
 
+          <fieldset v-if="landing?.colors" class="landing-colors">
+            <legend>Color: <strong>{{ selectedColor }}</strong></legend>
+            <div>
+              <button
+                v-for="color in landing.colors"
+                :key="color.name"
+                type="button"
+                :class="{ active: selectedColor === color.name }"
+                :aria-pressed="selectedColor === color.name"
+                @click="selectedColor = color.name"
+              >
+                <span :style="{ background: color.swatch }" aria-hidden="true"></span>{{ color.name }}
+              </button>
+            </div>
+          </fieldset>
+
           <div class="product-buy-actions">
             <div class="quantity-stepper" role="group" aria-label="Cantidad">
               <button type="button" aria-label="Quitar uno" :disabled="productQuantity <= 1" @click="changeProductQuantity(-1)">−</button>
               <span aria-live="polite">{{ productQuantity }}</span>
               <button type="button" aria-label="Agregar uno" :disabled="productQuantity >= 10" @click="changeProductQuantity(1)">+</button>
             </div>
-            <button class="primary-button buy-now" type="button" @click="buyNow(pageProduct, productQuantity)">
+            <button class="primary-button buy-now" type="button" @click="buyNow(pageProduct, productQuantity, selectedColor || undefined)">
               Comprar ahora · {{ formatPrice(productTotal) }} <span>→</span>
             </button>
           </div>
-          <button class="secondary-button" type="button" @click="addToCart(pageProduct, productQuantity)">Agregar al carrito y seguir viendo</button>
+          <button class="secondary-button" type="button" @click="addToCart(pageProduct, productQuantity, true, selectedColor || undefined)">Agregar al carrito y seguir viendo</button>
           <a class="whatsapp-product" :href="productWhatsApp" target="_blank" rel="noopener" @click="trackProductWhatsApp">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 1.8a8.2 8.2 0 1 1-4.2 15.3l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 0 1 12 3.8Zm-3.2 4.4c-.2 0-.5 0-.7.3-.3.3-1 1-1 2.4s1 2.8 1.2 3c.1.2 2 3.2 5 4.4 2.5 1 3 .8 3.5.7.5 0 1.7-.7 1.9-1.4.2-.7.2-1.2.2-1.4l-.5-.3-1.9-.9c-.3-.1-.5-.1-.7.1l-.8 1c-.2.2-.3.2-.6.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.4.1-.2 0-.4 0-.5l-.9-2c-.2-.5-.4-.5-.6-.5h-.5Z"/></svg>
             Quiero este producto por WhatsApp
@@ -1001,7 +1034,7 @@ watch(showFullCatalog, async (val) => {
               <del v-if="pageProduct.regularPrice">{{ formatPrice(pageProduct.regularPrice) }}</del>
               <strong>{{ formatPrice(pageProduct.price) }}</strong>
             </div>
-            <button class="primary-button" type="button" @click="buyNow(pageProduct, productQuantity)">
+            <button class="primary-button" type="button" @click="buyNow(pageProduct, productQuantity, selectedColor || undefined)">
               Comprar ahora · {{ formatPrice(productTotal) }} <span>→</span>
             </button>
             <a class="whatsapp-product" :href="productWhatsApp" target="_blank" rel="noopener" @click="trackProductWhatsApp">Prefiero comprar por WhatsApp</a>
@@ -1051,7 +1084,7 @@ watch(showFullCatalog, async (val) => {
           <span>{{ landing?.name || pageProduct.name }}</span>
           <strong>{{ formatPrice(productTotal) }}</strong>
         </div>
-        <button class="primary-button" type="button" @click="buyNow(pageProduct, productQuantity)">Comprar ahora <span>→</span></button>
+        <button class="primary-button" type="button" @click="buyNow(pageProduct, productQuantity, selectedColor || undefined)">Comprar ahora <span>→</span></button>
       </div>
     </section>
     <section v-else class="checkout-page">
@@ -1260,15 +1293,15 @@ watch(showFullCatalog, async (val) => {
               <span>{{ cartCount }} {{ cartCount === 1 ? "arreglo" : "arreglos" }}</span>
             </div>
             <ul class="checkout-summary-items">
-              <li v-for="item in cart" :key="item._id">
+              <li v-for="item in cart" :key="cartKey(item)">
                 <img :src="productImage(item.image, 160, 160)" :alt="item.name" />
                 <div>
-                  <h3>{{ item.name }}</h3>
+                  <h3>{{ itemLabel(item) }}</h3>
                   <p>{{ item.sku }} · {{ item.dimensions }}</p>
                   <div v-if="checkoutStep === 'details'" class="quantity">
-                    <button type="button" :aria-label="`Quitar uno de ${item.name}`" @click="changeQuantity(item._id, -1)">−</button
+                    <button type="button" :aria-label="`Quitar uno de ${item.name}`" @click="changeQuantity(cartKey(item), -1)">−</button
                     ><span>{{ item.quantity }}</span
-                    ><button type="button" :aria-label="`Agregar uno de ${item.name}`" :disabled="item.quantity >= 10" @click="changeQuantity(item._id, 1)">+</button>
+                    ><button type="button" :aria-label="`Agregar uno de ${item.name}`" :disabled="item.quantity >= 10" @click="changeQuantity(cartKey(item), 1)">+</button>
                   </div>
                   <p v-else>Cantidad: {{ item.quantity }}</p>
                 </div>
@@ -1325,16 +1358,16 @@ watch(showFullCatalog, async (val) => {
           <button type="button" @click="isCartOpen = false">×</button>
         </div>
         <div v-if="cart.length" class="cart-items">
-          <div v-for="item in cart" :key="item._id" class="cart-item">
+          <div v-for="item in cart" :key="cartKey(item)" class="cart-item">
             <RouterLink :to="productLink(item)" @click="isCartOpen = false"><img :src="productImage(item.image, 160, 160)" :alt="item.name" /></RouterLink>
             <div>
-              <h3><RouterLink :to="productLink(item)" @click="isCartOpen = false">{{ item.name }}</RouterLink></h3>
+              <h3><RouterLink :to="productLink(item)" @click="isCartOpen = false">{{ itemLabel(item) }}</RouterLink></h3>
               <p>{{ formatPrice(item.price) }}</p>
               <div class="quantity">
-                <button type="button" @click="changeQuantity(item._id, -1)">
+                <button type="button" @click="changeQuantity(cartKey(item), -1)">
                   −</button
                 ><span>{{ item.quantity }}</span
-                ><button type="button" @click="changeQuantity(item._id, 1)">
+                ><button type="button" @click="changeQuantity(cartKey(item), 1)">
                   +
                 </button>
               </div>
@@ -1398,7 +1431,7 @@ watch(showFullCatalog, async (val) => {
         <p class="eyebrow">Último vistazo</p>
         <h2 id="delivery-warning-title">¿Todo bien?</h2>
         <dl class="delivery-review">
-          <div><dt>Regalo</dt><dd><span v-for="item in cart" :key="item._id">{{ item.quantity }} × {{ item.name }}</span></dd></div>
+          <div><dt>Regalo</dt><dd><span v-for="item in cart" :key="cartKey(item)">{{ item.quantity }} × {{ itemLabel(item) }}</span></dd></div>
           <div><dt>Para</dt><dd>{{ checkout.recipient }}</dd></div>
           <div><dt>Dónde</dt><dd>{{ checkout.address }}<small>{{ checkout.zone }}</small></dd></div>
           <div><dt>Cuándo</dt><dd>{{ formatDeliveryDate(checkout.date) }}<small>{{ checkout.timeSlot }}</small></dd></div>
@@ -3135,6 +3168,53 @@ textarea {
   color: $primary-dark;
   font: 600 11px $font-principal;
   letter-spacing: 0.04em;
+}
+.landing-colors {
+  margin: 0 0 24px;
+  padding: 0;
+  border: 0;
+}
+.landing-colors legend {
+  margin-bottom: 10px;
+  padding: 0;
+  color: #483f3d;
+  font: 500 13px $font-principal;
+}
+.landing-colors legend strong {
+  color: $primary-dark;
+}
+.landing-colors div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.landing-colors button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 13px;
+  border: 1px solid rgba($primary, 0.18);
+  color: #483f3d;
+  background: transparent;
+  font: 500 12px $font-principal;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.landing-colors button:hover {
+  border-color: rgba($primary, 0.45);
+}
+.landing-colors button.active {
+  border-color: $primary-dark;
+  color: $primary-dark;
+  background: $primary-light;
+  font-weight: 600;
+}
+.landing-colors button span {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
 }
 .landing-includes {
   margin: 30px 0 24px;
