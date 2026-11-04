@@ -1633,7 +1633,7 @@ h1 i {
   padding: 150px 5vw 100px;
 }
 .gifts {
-  padding: 120px 5vw 0;
+  padding: 120px 5vw;
 }
 .gift-grid {
   display: grid;
@@ -2789,7 +2789,7 @@ textarea {
     width: 100%;
   }
   .gifts {
-    padding-top: 80px;
+    padding: 80px 5vw;
   }
   .gift-grid {
     grid-template-columns: 1fr;
