@@ -8,7 +8,7 @@ import {
   type Product,
 } from "@/services/storeApi";
 import { metaTrackingSnapshot, productParams, trackMeta } from "@/services/metaPixel";
-import { landingBySlug } from "@/config/landings";
+import { landingBySlug, landings } from "@/config/landings";
 
 /**
  * `slug`: el componente se renderiza como página de compra (/producto/:slug).
@@ -60,6 +60,8 @@ const isProductPage = computed(() => Boolean(props.slug));
 /** Landing de campaña: mismo flujo de compra, con fotos y textos propios. */
 const landing = computed(() => landingBySlug(props.slug));
 const activeLandingImage = ref(0);
+/** Portada: producto real (precio) de cada uno de los tres regalos de la campaña. */
+const giftProducts = ref<Record<string, Product>>({});
 const selectedColor = ref("");
 const isCheckoutPage = computed(() => Boolean(props.checkoutPage));
 const loadedImages = ref(new Set<string>());
@@ -201,6 +203,14 @@ function applyProductSeo(product: Product) {
 function clearProductSeo() {
   document.getElementById("product-schema")?.remove();
   setMetaTag('meta[property="og:type"]', "content", "website");
+}
+
+async function loadGifts() {
+  const results = await Promise.allSettled(landings.map((page) => storeApi.product(page.productSlug, offerId)));
+  landings.forEach((page, index) => {
+    const result = results[index];
+    if (result?.status === "fulfilled") giftProducts.value[page.slug] = result.value.data.product;
+  });
 }
 
 async function loadProduct(slug: string) {
@@ -605,6 +615,7 @@ function setupObserver() {
 
 onMounted(async () => {
   if (props.slug) void loadProduct(props.slug);
+  else if (!props.checkoutPage) void loadGifts();
   try {
     await refreshCatalog();
   } catch {
@@ -710,7 +721,7 @@ watch(showFullCatalog, async (val) => {
     <header class="site-header">
       <nav class="nav" aria-label="Navegación principal">
         <RouterLink class="brand" :to="{ path: '/', query: { oferta: offerId } }" aria-label="Bruval, inicio"><img src="/logo-bruval.png" alt="Bruval" /></RouterLink>
-        <RouterLink class="nav-link" :to="{ path: '/', query: { oferta: offerId }, hash: '#coleccion' }">Colección</RouterLink>
+        <RouterLink class="nav-link" :to="{ path: '/', query: { oferta: offerId }, hash: '#regalos' }">Regalos</RouterLink>
         <a class="nav-link" href="/pedido">¿Ya tienes un pedido?</a>
         <p class="nav-note">Flores para sentir cerca</p>
         <button class="cart-trigger" type="button" @click="isCartOpen = true">
@@ -725,33 +736,62 @@ watch(showFullCatalog, async (val) => {
       <div v-if="isOfferActive" class="offer-banner">
         <span>Enlace privado · precios especiales</span>
         <strong>Termina en {{ countdown }}</strong>
-        <a href="#coleccion">Comprar ahora <b>→</b></a>
+        <a href="#regalos">Comprar ahora <b>→</b></a>
       </div>
       <div id="inicio" class="hero-copy">
-        <p class="eyebrow">Floristería contemporánea · Guayaquil</p>
-        <p class="hero-shipping">Envío gratis en todas nuestras zonas</p>
-        <h1>Un gesto<br /><i>vivo.</i></h1>
+        <p class="eyebrow">¿No sabes qué regalarle?</p>
+        <p class="hero-shipping">Envío gratis · Entrega desde 2 horas en Guayaquil</p>
+        <h1>Que dure<br /><i>años.</i></h1>
         <p class="hero-text">
-          Diseñamos flores con intención, para los días que merecen quedar en la
-          memoria.
+          Rosas naturales preservadas que no se marchitan: de 3 a 5 años en su
+          mesa, con 6 meses de garantía. Tres regalos que no fallan.
         </p>
-        <a href="#coleccion" class="text-link">{{ isOfferActive ? "Comprar antes que termine" : "Ver colección" }} <span>↓</span></a>
+        <a href="#regalos" class="text-link">Ver los 3 regalos <span>↓</span></a>
       </div>
       <div class="hero-image image-loading" :class="{ 'image-ready': loadedImages.has('hero') }">
         <img
-          src="https://i0.wp.com/bruval.com.ec/home/wp-content/uploads/2026/01/BOUQUET-140.webp?resize=900%2C1100&ssl=1"
-          alt="Bouquet floral Bruval"
+          src="/landings/ramo-rosas-preservadas/01.webp"
+          alt="Jarrón de rosas rojas preservadas con lazo rojo"
           @load="markImageLoaded('hero')"
         />
         <p>Hecho para tu momento</p>
       </div>
     </section>
 
+    <section id="regalos" class="gifts">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Los más pedidos</p>
+          <h2>Tres regalos<br />que no fallan.</h2>
+        </div>
+        <p>
+          Elige uno, escribe tu mensaje y lo entregamos desde 2 horas después de
+          tu pago.
+          <span class="section-shipping">Envío gratis en Guayaquil, Samborondón y Durán.</span>
+        </p>
+      </div>
+      <div class="gift-grid">
+        <article v-for="page in landings" :key="page.slug" class="gift-card">
+          <RouterLink class="gift-image" :to="{ path: `/producto/${page.slug}`, query: { oferta: offerId } }" :aria-label="`Ver ${page.name}`">
+            <img :src="page.images[0]?.src" :alt="page.images[0]?.alt" loading="lazy" />
+          </RouterLink>
+          <p class="eyebrow">{{ page.eyebrow }}</p>
+          <h3><RouterLink :to="{ path: `/producto/${page.slug}`, query: { oferta: offerId } }">{{ page.name }}</RouterLink></h3>
+          <ul class="landing-highlights">
+            <li v-for="highlight in page.highlights.slice(0, 2)" :key="highlight">{{ highlight }}</li>
+          </ul>
+          <RouterLink class="primary-button" :to="{ path: `/producto/${page.slug}`, query: { oferta: offerId } }">
+            Ver y comprar<template v-if="giftProducts[page.slug]"> · {{ formatPrice(giftProducts[page.slug]!.price) }}</template> <span>→</span>
+          </RouterLink>
+        </article>
+      </div>
+    </section>
+
     <section id="coleccion" class="collection">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">Preservadas para siempre</p>
-          <h2>Detalles que<br />perduran.</h2>
+          <p class="eyebrow">¿Buscas otra cosa?</p>
+          <h2>Todo el<br />catálogo.</h2>
         </div>
         <p>
           Nuestros arreglos preservados para celebrar, agradecer y acompañar los
@@ -1678,6 +1718,53 @@ h1 i {
 }
 .collection {
   padding: 150px 5vw 100px;
+}
+.gifts {
+  padding: 120px 5vw 0;
+}
+.gift-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 28px;
+}
+.gift-card {
+  display: flex;
+  flex-direction: column;
+}
+.gift-image {
+  display: block;
+  aspect-ratio: 4 / 5;
+  margin-bottom: 20px;
+  overflow: hidden;
+  background: $primary-light;
+}
+.gift-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.gift-image:hover img {
+  transform: scale(1.03);
+}
+.gift-card .eyebrow {
+  margin-bottom: 8px;
+}
+.gift-card h3 {
+  margin-bottom: 14px;
+  font: 500 30px/1 $font-secondary;
+  letter-spacing: -0.04em;
+}
+.gift-card h3 a {
+  color: inherit;
+  text-decoration: none;
+}
+.gift-card .landing-highlights {
+  margin-bottom: 18px;
+}
+.gift-card .primary-button {
+  margin-top: auto;
+  text-decoration: none;
 }
 .section-heading {
   justify-content: space-between;
@@ -2767,7 +2854,7 @@ textarea {
   .hero-copy {
     width: 100%;
     min-width: 0;
-    padding: 290px 5vw 30px;
+    padding: 330px 5vw 30px;
   }
   h1 {
     font-size: 25vw;
@@ -2787,6 +2874,13 @@ textarea {
   }
   .section-heading > p {
     width: 100%;
+  }
+  .gifts {
+    padding-top: 80px;
+  }
+  .gift-grid {
+    grid-template-columns: 1fr;
+    gap: 48px;
   }
   .product-list {
     gap: 38px 4%;
