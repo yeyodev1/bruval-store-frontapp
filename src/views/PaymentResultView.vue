@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { storeApi } from '@/services/storeApi'
 import { trackMeta } from '@/services/metaPixel'
 
 const route = useRoute()
+const router = useRouter()
 const state = ref<'loading' | 'approved' | 'failed'>('loading')
 const message = ref('Estamos verificando tu pago seguro...')
 const orderNumber = ref('')
 const isAdvisorModalOpen = ref(false)
-const order = ref<{ items: Array<{ name: string; price: number; quantity: number }>; total: number; customer: { name: string; email: string; phone: string }; delivery: { recipient: string; address: string; mapUrl: string; date: string; timeSlot: string; messageCard: string } } | null>(null)
+const order = ref<{ items: Array<{ name: string; price: number; quantity: number }>; total: number; customer: { name: string; email: string; phone: string }; delivery?: { recipient?: string; address?: string; mapUrl?: string; date?: string; timeSlot?: string; messageCard?: string } } | null>(null)
 const formatPrice = (value: number) => `$${value.toFixed(2)}`
 const advisorWhatsApp = computed(() => {
   const details = order.value
@@ -21,11 +22,11 @@ const advisorWhatsApp = computed(() => {
     '',
     `Resumen de mi pedido:\n${items}`,
     details ? `Total pagado: ${formatPrice(details.total)}` : '',
-    details ? `Entrega: ${details.delivery.date}, ${details.delivery.timeSlot}` : '',
-    details ? `Recibe: ${details.delivery.recipient}` : '',
-    details ? `Dirección: ${details.delivery.address}` : '',
-    details?.delivery.mapUrl ? `Ubicación: ${details.delivery.mapUrl}` : '',
-    details?.delivery.messageCard ? `Mensaje de tarjeta: ${details.delivery.messageCard}` : '',
+    details?.delivery?.date ? `Entrega: ${details.delivery.date}, ${details.delivery.timeSlot}` : '',
+    details?.delivery?.recipient ? `Recibe: ${details.delivery.recipient}` : '',
+    details?.delivery?.address ? `Dirección: ${details.delivery.address}` : '',
+    details?.delivery?.mapUrl ? `Ubicación: ${details.delivery.mapUrl}` : '',
+    details?.delivery?.messageCard ? `Mensaje de tarjeta: ${details.delivery.messageCard}` : '',
     '',
     'Quedo atento/a a su confirmación. Muchas gracias.',
   ].filter(Boolean).join('\n')
@@ -65,6 +66,11 @@ onMounted(async () => {
           localStorage.setItem('bruval-purchase-tracked', data.orderNumber)
         }
         localStorage.removeItem('bruval-cart')
+        // Primero se paga y después se llena la entrega: si falta, se pide ahora.
+        if (!data.order.delivery?.address) {
+          await router.replace({ path: '/checkout', query: { entrega: data.orderNumber, pago: id } })
+          return
+        }
       }
     } else {
       state.value = 'failed'
@@ -91,7 +97,7 @@ onMounted(async () => {
       <div v-if="state === 'approved' && order" class="order-portal">
         <div class="portal-head"><span>Pago confirmado por PayPhone</span><strong>{{ formatPrice(order.total) }}</strong></div>
         <div v-for="item in order.items" :key="item.name" class="portal-row"><span>{{ item.quantity }} x {{ item.name }}</span><strong>{{ formatPrice(item.price * item.quantity) }}</strong></div>
-        <div class="portal-delivery"><strong>Entrega</strong><p>Para {{ order.delivery.recipient }} · {{ order.delivery.date }}, {{ order.delivery.timeSlot }}</p><p>{{ order.delivery.address }}</p><p class="message-card">“{{ order.delivery.messageCard }}”</p><a :href="order.delivery.mapUrl" target="_blank" rel="noopener">Ver ubicación en Google Maps ↗</a></div>
+        <div v-if="order.delivery?.address" class="portal-delivery"><strong>Entrega</strong><p>Para {{ order.delivery.recipient }} · {{ order.delivery.date }}, {{ order.delivery.timeSlot }}</p><p>{{ order.delivery.address }}</p><p class="message-card">“{{ order.delivery.messageCard }}”</p><a v-if="order.delivery.mapUrl" :href="order.delivery.mapUrl" target="_blank" rel="noopener">Ver ubicación en Google Maps ↗</a></div>
         <div class="portal-next"><strong>¿Qué sigue?</strong><p>Tu pago fue confirmado con PayPhone. Ya estamos cuidando cada detalle de tu entrega. Un asesor de Bruval se pondrá en contacto al número confirmado <b>{{ order.customer.phone }}</b>. También enviamos un correo de respaldo a <b>{{ order.customer.email }}</b>.</p><a class="track-order" href="/pedido">Ver cómo va mi pedido →</a><small>Desde ahí podrás consultar los detalles de tu pedido cuando lo necesites.</small><button class="advisor" type="button" @click="isAdvisorModalOpen = true">Escribir a un asesor por WhatsApp ↗</button><small>El mensaje incluye tu pedido y los datos de entrega para que podamos ayudarte de inmediato.</small></div>
       </div>
       <a href="/" class="button">Volver a Bruval <span>→</span></a>

@@ -24,11 +24,21 @@ export interface CartItem extends Product {
   variant?: string
 }
 
+export interface OrderDelivery {
+  recipient: string
+  address: string
+  mapUrl: string
+  zone: string
+  date: string
+  timeSlot: string
+  messageCard: string
+}
+
 export interface CheckoutPayload {
   offerId: string
   items: Array<{ productId: string; quantity: number; variant?: string }>
   customer: { name: string; email: string; phone: string; phoneConfirmed: boolean }
-  delivery: { recipient: string; address: string; mapUrl: string; zone: string; date: string; timeSlot: string; messageCard: string }
+  delivery?: OrderDelivery
   tracking?: { fbp?: string; fbc?: string; eventSourceUrl?: string }
 }
 
@@ -67,12 +77,17 @@ class StoreApi extends APIBase {
     return this.post<{ orderNumber: string; total: number; payphone: { token?: string; storeId?: string } }>('orders', payload)
   }
 
+  /** Datos de entrega después del pago; `paymentId` es el id que PayPhone devolvió al pagar. */
+  completeDelivery(orderNumber: string, paymentId: string, delivery: OrderDelivery) {
+    return this.post<{ orderNumber: string; delivery: OrderDelivery }>(`orders/${encodeURIComponent(orderNumber)}/delivery`, { paymentId, delivery })
+  }
+
   lookupOrders(value: string) {
-    return this.post<Array<{ orderNumber: string; items: Array<{ name: string; price: number; quantity: number }>; total: number; status: string; createdAt: string; delivery: { recipient: string; address: string; mapUrl: string; date: string; timeSlot: string; messageCard: string } }>>('orders/lookup', { value })
+    return this.post<Array<{ orderNumber: string; items: Array<{ name: string; price: number; quantity: number }>; total: number; status: string; createdAt: string; delivery?: Partial<OrderDelivery> }>>('orders/lookup', { value })
   }
 
   confirmPayphonePayment(id: string, clientTransactionId: string) {
-    return this.post<{ approved: boolean; orderNumber: string; message: string; order: { items: Array<{ name: string; sku?: string; price: number; quantity: number }>; total: number; customer: { name: string; email: string; phone: string }; delivery: { recipient: string; address: string; mapUrl: string; date: string; timeSlot: string; messageCard: string }; status: string } }>('payments/payphone/confirm', { id, clientTransactionId })
+    return this.post<{ approved: boolean; orderNumber: string; message: string; order: { items: Array<{ name: string; sku?: string; price: number; quantity: number }>; total: number; customer: { name: string; email: string; phone: string }; delivery?: Partial<OrderDelivery>; status: string } }>('payments/payphone/confirm', { id, clientTransactionId })
   }
 }
 

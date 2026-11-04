@@ -7,7 +7,7 @@ export interface AdminOrder {
   status: 'awaiting_payment' | 'paid' | 'payment_failed'
   createdAt: string
   customer: { name: string; email: string; phone: string }
-  delivery: { recipient: string; address: string; mapUrl: string; date: string; timeSlot: string; messageCard: string }
+  delivery?: { recipient: string; address: string; mapUrl: string; date: string; timeSlot: string; messageCard: string }
   items: Array<{ name: string; price: number; quantity: number }>
 }
 

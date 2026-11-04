@@ -81,10 +81,14 @@ const sentinel = ref<HTMLElement | null>(null);
 const isCheckoutWhatsAppOpen = ref(false);
 const isCheckoutWhatsAppConfirmationOpen = ref(false);
 const isDeliveryZoneWarningOpen = ref(false);
-const checkoutStep = ref<"details" | "payment">("details");
+/** Vuelta del pago: /checkout?entrega=<pedido>&pago=<id de PayPhone> pide los datos de entrega. */
+const deliveryOrder = currentUrl.searchParams.get("entrega") || "";
+const deliveryPaymentId = currentUrl.searchParams.get("pago") || "";
+// Primero se paga (tus datos → pago) y después se llena la entrega.
+const checkoutStep = ref<"details" | "payment" | "delivery">(props.checkoutPage && deliveryOrder && deliveryPaymentId ? "delivery" : "details");
 const isSubmitting = ref(false);
 const errorMessage = ref("");
-const orderNumber = ref("");
+const orderNumber = ref(deliveryOrder);
 const payment = ref<{ token?: string; storeId?: string }>({});
 const checkout = ref({ ...checkoutDefaults, ...readStored("bruval-checkout", {}) });
 const phonePrefix = ref(readStored("bruval-phone-prefix", "+593"));
@@ -461,10 +465,6 @@ function trackWhatsAppCheckout() {
 }
 
 async function beginPayment() {
-  if (!selectedDeliveryZone.value) {
-    errorMessage.value = "Selecciona una zona de entrega para continuar.";
-    return;
-  }
   isSubmitting.value = true;
   errorMessage.value = "";
   try {
@@ -481,15 +481,6 @@ async function beginPayment() {
         phone: `${phonePrefix.value}${checkout.value.phone}`,
         // El aviso junto al teléfono reemplaza la casilla: comprar implica aceptar el contacto para coordinar.
         phoneConfirmed: true,
-      },
-      delivery: {
-        recipient: checkout.value.recipient,
-        address: checkout.value.address,
-        mapUrl: deliveryMapUrl.value,
-        zone: checkout.value.zone,
-        date: checkout.value.date,
-        timeSlot: checkout.value.timeSlot,
-        messageCard: checkout.value.messageCard,
       },
       tracking: metaTrackingSnapshot(),
     };
@@ -511,6 +502,30 @@ async function beginPayment() {
   } catch (error: any) {
     errorMessage.value =
       error.message || "No pudimos preparar tu pago. Inténtalo nuevamente.";
+  } finally {
+    isSubmitting.value = false;
+  }
+}
+
+async function saveDelivery() {
+  isSubmitting.value = true;
+  errorMessage.value = "";
+  try {
+    await storeApi.completeDelivery(orderNumber.value, deliveryPaymentId, {
+      recipient: checkout.value.recipient,
+      address: checkout.value.address,
+      mapUrl: deliveryMapUrl.value,
+      zone: checkout.value.zone,
+      date: checkout.value.date,
+      timeSlot: checkout.value.timeSlot,
+      messageCard: checkout.value.messageCard,
+    });
+    isDeliveryZoneWarningOpen.value = false;
+    // El resultado del pago ya muestra el pedido completo, ahora con su entrega.
+    await router.replace({ path: "/pay-response", query: { id: deliveryPaymentId, clientTransactionId: orderNumber.value } });
+  } catch (error: any) {
+    isDeliveryZoneWarningOpen.value = false;
+    errorMessage.value = error.message || "No pudimos guardar la entrega. Inténtalo nuevamente.";
   } finally {
     isSubmitting.value = false;
   }
@@ -1070,43 +1085,38 @@ watch(showFullCatalog, async (val) => {
       <template v-else>
         <header class="checkout-header">
           <ol class="checkout-steps" aria-label="Pasos de la compra">
-            <li :class="{ active: checkoutStep === 'details', done: checkoutStep === 'payment' }"><b>1</b> Datos de entrega</li>
-            <li :class="{ active: checkoutStep === 'payment' }"><b>2</b> Pago seguro</li>
+            <li :class="{ active: checkoutStep === 'details', done: checkoutStep !== 'details' }"><b>1</b> Tus datos</li>
+            <li :class="{ active: checkoutStep === 'payment', done: checkoutStep === 'delivery' }"><b>2</b> Pago</li>
+            <li :class="{ active: checkoutStep === 'delivery' }"><b>3</b> Entrega</li>
           </ol>
-          <p class="eyebrow">Checkout seguro</p>
-          <h1>{{ checkoutStep === "details" ? "Casi en sus manos." : "Un último paso." }}</h1>
+          <h1>{{ checkoutStep === "details" ? "Casi tuyo." : checkoutStep === "payment" ? "Paga aquí." : "¿A dónde lo llevamos?" }}</h1>
           <p class="checkout-lead">
             {{
               checkoutStep === "details"
-                ? "Cuatro datos rápidos: tú, quién lo recibe, cuándo y qué dice la tarjeta. Luego pagas con tarjeta."
-                : `Pedido ${orderNumber} para ${checkout.recipient}, ${formatDeliveryDate(checkout.date)} de ${checkout.timeSlot}. Paga con tarjeta aquí abajo y queda confirmado.`
+                ? "Tus datos de contacto y pagas con tarjeta. Después nos dices a dónde lo llevamos."
+                : checkoutStep === "payment"
+                  ? `Pedido ${orderNumber}. Paga con tarjeta aquí abajo; después eliges quién lo recibe y cuándo.`
+                  : `Tu pago está confirmado (pedido ${orderNumber}). Dinos quién lo recibe, cuándo y qué dice la tarjeta.`
             }}
           </p>
         </header>
-        <div class="checkout-page-grid" :class="{ paying: checkoutStep === 'payment' }">
+        <div class="checkout-page-grid" :class="{ paying: checkoutStep === 'payment', delivery: checkoutStep === 'delivery' }">
           <div class="checkout-main">
             <Transition name="fade" mode="out-in">
             <form
               v-if="checkoutStep === 'details'"
               class="checkout-form"
-              @submit.prevent="confirmDeliveryDetails"
+              @submit.prevent="beginPayment"
               @invalid.capture="explainInvalidField"
             >
               <fieldset class="checkout-block">
-                <legend><b>1</b> Tus datos</legend>
-                <p class="checkout-block-hint">Para enviarte la confirmación y avisarte cuando se entregue.</p>
-                <label
-                  >Nombre<input
+                <legend>Tus datos</legend>
+                <label class="full"
+                  >Nombre y apellido<input
                     v-model.trim="checkout.firstName"
                     required
-                    autocomplete="given-name"
+                    autocomplete="name"
                     placeholder="Tu nombre" /></label
-                ><label
-                  >Apellido<input
-                    v-model.trim="checkout.lastName"
-                    required
-                    autocomplete="family-name"
-                    placeholder="Tu apellido" /></label
                 ><label class="full"
                   >Correo<input
                     v-model.trim="checkout.email"
@@ -1135,8 +1145,43 @@ watch(showFullCatalog, async (val) => {
                 >
               </fieldset>
 
+              <p v-if="errorMessage" class="error full" role="alert">{{ errorMessage }}</p>
+              <button
+                class="primary-button full checkout-submit"
+                :disabled="isSubmitting"
+                type="submit"
+              >
+                {{ isSubmitting ? "Preparando pago..." : `Pagar ${formatPrice(total)} con tarjeta` }}
+                <span v-if="isSubmitting" class="button-spinner" aria-hidden="true"></span>
+                <span v-else>→</span>
+              </button>
+              <p class="checkout-secure-note full">Pago seguro por PayPhone. Después del pago eliges quién lo recibe, cuándo y el mensaje de la tarjeta.</p>
+              <button class="whatsapp-button full" type="button" @click="isCheckoutWhatsAppOpen = true">
+                ¿Prefieres comprar por WhatsApp? ↗
+              </button>
+            </form>
+            <div v-else-if="checkoutStep === 'payment'" class="payment-step">
+              <div id="payphone-button" class="payphone-loading">
+                <span></span>
+                <p>Cargando pago seguro...</p>
+              </div>
+              <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
+              <button
+                type="button"
+                class="text-link"
+                @click="checkoutStep = 'details'"
+              >
+                ← Editar información
+              </button>
+            </div>
+            <form
+              v-else
+              class="checkout-form"
+              @submit.prevent="confirmDeliveryDetails"
+              @invalid.capture="explainInvalidField"
+            >
               <fieldset class="checkout-block">
-                <legend><b>2</b> ¿Quién lo recibe y dónde?</legend>
+                <legend><b>1</b> ¿Quién lo recibe y dónde?</legend>
                 <label class="full"
                   >Nombre de quien recibe<input
                     v-model.trim="checkout.recipient"
@@ -1166,8 +1211,8 @@ watch(showFullCatalog, async (val) => {
               </fieldset>
 
               <fieldset class="checkout-block">
-                <legend><b>3</b> ¿Cuándo lo entregamos?</legend>
-                <p class="checkout-block-hint">Entregamos desde 2 horas después de tu pago.</p>
+                <legend><b>2</b> ¿Cuándo lo entregamos?</legend>
+                <p class="checkout-block-hint">Entregamos desde 2 horas después de ahora.</p>
                 <div class="choice-row full" role="group" aria-label="Día de entrega">
                   <button
                     v-if="canDeliverToday"
@@ -1208,7 +1253,7 @@ watch(showFullCatalog, async (val) => {
               </fieldset>
 
               <fieldset class="checkout-block">
-                <legend><b>4</b> Mensaje de la tarjeta</legend>
+                <legend><b>3</b> Mensaje de la tarjeta</legend>
                 <p class="checkout-block-hint">Lo escribimos a mano en la tarjeta que acompaña tu regalo. ¿No sabes qué poner? Toca una idea y edítala.</p>
                 <div class="message-ideas full">
                   <button v-for="idea in messageCardIdeas" :key="idea" type="button" @click="checkout.messageCard = idea">“{{ idea }}”</button>
@@ -1225,38 +1270,14 @@ watch(showFullCatalog, async (val) => {
               </fieldset>
 
               <p v-if="errorMessage" class="error full" role="alert">{{ errorMessage }}</p>
-              <button
-                class="primary-button full checkout-submit"
-                :disabled="isSubmitting"
-                type="submit"
-              >
-                {{ isSubmitting ? "Preparando pago..." : `Revisar y pagar ${formatPrice(total)}` }}
-                <span v-if="isSubmitting" class="button-spinner" aria-hidden="true"></span>
-                <span v-else>→</span>
-              </button>
-              <p class="checkout-secure-note full">Pago seguro con tarjeta por PayPhone. Aún no se te cobra: primero revisas tu pedido.</p>
-              <button class="whatsapp-button full" type="button" @click="isCheckoutWhatsAppOpen = true">
-                ¿Prefieres comprar por WhatsApp? ↗
+              <button class="primary-button full checkout-submit" :disabled="isSubmitting" type="submit">
+                Confirmar entrega <span>→</span>
               </button>
             </form>
-            <div v-else class="payment-step">
-              <div id="payphone-button" class="payphone-loading">
-                <span></span>
-                <p>Cargando pago seguro...</p>
-              </div>
-              <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
-              <button
-                type="button"
-                class="text-link"
-                @click="checkoutStep = 'details'"
-              >
-                ← Editar información
-              </button>
-            </div>
             </Transition>
           </div>
 
-          <aside class="checkout-summary" aria-label="Resumen del pedido">
+          <aside v-if="checkoutStep !== 'delivery'" class="checkout-summary" aria-label="Resumen del pedido">
             <div class="checkout-summary-head">
               <h2>Tu pedido</h2>
               <span>{{ cartCount }} {{ cartCount === 1 ? "arreglo" : "arreglos" }}</span>
@@ -1400,16 +1421,16 @@ watch(showFullCatalog, async (val) => {
         <p class="eyebrow">Último vistazo</p>
         <h2 id="delivery-warning-title">¿Todo bien?</h2>
         <dl class="delivery-review">
-          <div><dt>Regalo</dt><dd><span v-for="item in cart" :key="cartKey(item)">{{ item.quantity }} × {{ itemLabel(item) }}</span></dd></div>
+          <div v-if="cart.length"><dt>Regalo</dt><dd><span v-for="item in cart" :key="cartKey(item)">{{ item.quantity }} × {{ itemLabel(item) }}</span></dd></div>
           <div><dt>Para</dt><dd>{{ checkout.recipient }}</dd></div>
           <div><dt>Dónde</dt><dd>{{ checkout.address }}<small>{{ checkout.zone }}</small></dd></div>
           <div><dt>Cuándo</dt><dd>{{ formatDeliveryDate(checkout.date) }}<small>{{ checkout.timeSlot }}</small></dd></div>
           <div><dt>Tarjeta</dt><dd>“{{ checkout.messageCard }}”</dd></div>
-          <div class="delivery-review-total"><dt>Total</dt><dd>{{ formatPrice(total) }} <small>Envío gratis</small></dd></div>
+          <div v-if="cart.length" class="delivery-review-total"><dt>Total</dt><dd>{{ formatPrice(total) }} <small>Envío gratis</small></dd></div>
         </dl>
         <p class="delivery-warning-notice">Revisa que el sector sea el correcto: define la ruta del repartidor. Si no coincide con la dirección, no podemos asegurar la entrega en el horario elegido.</p>
         <div class="delivery-warning-actions">
-          <button class="primary-button" :disabled="isSubmitting" type="button" @click="isDeliveryZoneWarningOpen = false; beginPayment()">{{ isSubmitting ? "Preparando pago..." : `Sí, ir a pagar ${formatPrice(total)}` }} <span v-if="isSubmitting" class="button-spinner" aria-hidden="true"></span><span v-else>→</span></button>
+          <button class="primary-button" :disabled="isSubmitting" type="button" @click="saveDelivery()">{{ isSubmitting ? "Guardando..." : "Sí, confirmar entrega" }} <span v-if="isSubmitting" class="button-spinner" aria-hidden="true"></span><span v-else>→</span></button>
           <button class="delivery-warning-back" type="button" @click="isDeliveryZoneWarningOpen = false">Corregir algo</button>
         </div>
       </aside>
@@ -2434,7 +2455,7 @@ footer .brand {
   width: 100%;
   min-width: 0;
   margin: 0;
-  padding: 22px;
+  padding: 18px;
   box-sizing: border-box;
   border: 1px solid #eadfd9;
   background: $white;
@@ -2451,7 +2472,7 @@ footer .brand {
   align-items: center;
   gap: 10px;
   color: $primary-dark;
-  font: 600 17px $font-principal;
+  font: 600 15px $font-principal;
 }
 .checkout-block legend b {
   width: 26px;
@@ -3553,13 +3574,16 @@ textarea {
   align-items: start;
 }
 .checkout-header {
-  margin-bottom: 34px;
+  margin-bottom: 24px;
+}
+.checkout-page-grid.delivery {
+  grid-template-columns: minmax(0, 720px);
 }
 .checkout-main {
   min-width: 0;
 }
 .checkout-header h1 {
-  font: 500 clamp(40px, 5.2vw, 66px)/0.92 $font-secondary;
+  font: 500 clamp(30px, 3.4vw, 42px)/1 $font-secondary;
   letter-spacing: -0.05em;
 }
 .checkout-lead {
@@ -3570,7 +3594,7 @@ textarea {
   line-height: 1.6;
 }
 .checkout-steps {
-  margin: 0 0 30px;
+  margin: 0 0 18px;
   padding: 0;
   list-style: none;
   display: flex;
@@ -3679,10 +3703,6 @@ textarea {
   }
   .checkout-summary {
     position: static;
-    order: -1;
-  }
-  .checkout-page-grid.paying .checkout-summary {
-    order: 0;
   }
   .checkout-summary {
     padding: 20px;

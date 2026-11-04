@@ -126,9 +126,9 @@ onMounted(loadOrders)
             </div>
             <div class="detail-grid">
               <div><p class="detail-label">Cliente</p><p class="detail-value">{{ selectedOrder.customer.name }}</p><p>{{ selectedOrder.customer.email }}<br>{{ selectedOrder.customer.phone }}</p></div>
-              <div><p class="detail-label">Entrega</p><p class="detail-value">Para {{ selectedOrder.delivery.recipient }}</p><p>{{ selectedOrder.delivery.date }} · {{ selectedOrder.delivery.timeSlot }}<br>{{ selectedOrder.delivery.address }}</p><a :href="selectedOrder.delivery.mapUrl" target="_blank" rel="noopener">Ver mapa</a></div>
+              <div v-if="selectedOrder.delivery?.address"><p class="detail-label">Entrega</p><p class="detail-value">Para {{ selectedOrder.delivery.recipient }}</p><p>{{ selectedOrder.delivery.date }} · {{ selectedOrder.delivery.timeSlot }}<br>{{ selectedOrder.delivery.address }}</p><a :href="selectedOrder.delivery.mapUrl" target="_blank" rel="noopener">Ver mapa</a></div><div v-else><p class="detail-label">Entrega</p><p class="detail-value">Pendiente</p><p>El cliente aún no llena los datos de entrega. Escríbele por WhatsApp.</p></div>
             </div>
-            <div v-if="selectedOrder.delivery.messageCard" class="message-card"><p class="detail-label">Tarjeta</p><p>“{{ selectedOrder.delivery.messageCard }}”</p></div>
+            <div v-if="selectedOrder.delivery?.messageCard" class="message-card"><p class="detail-label">Tarjeta</p><p>“{{ selectedOrder.delivery.messageCard }}”</p></div>
             <div class="items"><p class="detail-label">Items</p><div v-for="item in selectedOrder.items" :key="`${item.name}-${item.price}`"><span>{{ item.quantity }} × {{ item.name }}</span><span>{{ formatPrice(item.price * item.quantity) }}</span></div><div class="total"><span>Total</span><strong>{{ formatPrice(selectedOrder.total) }}</strong></div></div>
             <a class="whatsapp-link" :href="whatsappLink(selectedOrder.customer.phone, selectedOrder.orderNumber)" target="_blank" rel="noopener">Contactar por WhatsApp</a>
           </aside>

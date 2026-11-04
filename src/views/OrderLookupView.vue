@@ -8,7 +8,7 @@ interface Order {
   total: number
   status: string
   createdAt: string
-  delivery: { recipient: string; address: string; date: string; timeSlot: string; mapUrl: string; messageCard: string }
+  delivery?: { recipient?: string; address?: string; date?: string; timeSlot?: string; mapUrl?: string; messageCard?: string }
 }
 
 const ADVISOR_WHATSAPP = '593999480437'
@@ -29,11 +29,11 @@ function whatsappLink(order: Order) {
     `Estado: ${statusLabel(order.status)}`,
     `Productos:\n${items}`,
     `Total: ${formatPrice(order.total)}`,
-    `Entrega: ${order.delivery.date}, ${order.delivery.timeSlot}`,
-    `Para: ${order.delivery.recipient}`,
-    `Dirección: ${order.delivery.address}`,
-    `Ubicación: ${order.delivery.mapUrl}`,
-    order.delivery.messageCard ? `Tarjeta: ${order.delivery.messageCard}` : '',
+    order.delivery?.address ? `Entrega: ${order.delivery.date}, ${order.delivery.timeSlot}` : 'Entrega: aún no envío los datos',
+    order.delivery?.recipient ? `Para: ${order.delivery.recipient}` : '',
+    order.delivery?.address ? `Dirección: ${order.delivery.address}` : '',
+    order.delivery?.mapUrl ? `Ubicación: ${order.delivery.mapUrl}` : '',
+    order.delivery?.messageCard ? `Tarjeta: ${order.delivery.messageCard}` : '',
   ].filter(Boolean).join('\n')
 
   return `https://wa.me/${ADVISOR_WHATSAPP}?text=${encodeURIComponent(message)}`
@@ -79,7 +79,7 @@ async function lookup() {
           <div class="items">
             <div v-for="item in order.items" :key="item.name" class="item"><span>{{ item.quantity }} x {{ item.name }}</span><strong>{{ formatPrice(item.price * item.quantity) }}</strong></div>
           </div>
-          <div class="delivery">
+          <div v-if="order.delivery?.address" class="delivery">
             <strong>Entrega</strong>
             <p>Para {{ order.delivery.recipient }} · {{ order.delivery.date }}, {{ order.delivery.timeSlot }}</p>
             <p>{{ order.delivery.address }}</p>
