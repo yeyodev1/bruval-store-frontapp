@@ -48,7 +48,11 @@ if (!currentUrl.searchParams.has("oferta")) {
 }
 
 const products = ref<Product[]>([]);
-const cart = ref<CartItem[]>(readStored<CartItem[]>("bruval-cart", []));
+// Carritos guardados antes de la campaña pueden traer productos que ya no se venden.
+const campaignSlugs = new Set(landings.map((page) => page.productSlug));
+const cart = ref<CartItem[]>(
+  readStored<CartItem[]>("bruval-cart", []).filter((item) => campaignSlugs.has(item.slug?.toLowerCase()) || campaignSlugs.has(item.sku?.toLowerCase())),
+);
 const isLoading = ref(true);
 const isCartOpen = ref(false);
 const pageProduct = ref<Product | null>(null);
@@ -124,7 +128,6 @@ const formatPrice = (value: number) => `$${value.toFixed(2)}`;
 function productLink(product: Pick<Product, "slug" | "sku">) {
   return { path: `/producto/${product.slug || product.sku}`, query: { oferta: offerId } };
 }
-const productCategory = computed(() => landing.value ? "Preservados" : pageProduct.value?.categories?.[0] || "Colección");
 const productWhatsApp = computed(() => {
   const product = pageProduct.value;
   if (!product) return "https://wa.me/593999480437";
@@ -235,7 +238,7 @@ async function loadProduct(slug: string) {
 }
 
 function goToCollection() {
-  return router.push({ path: "/", query: { oferta: offerId }, hash: "#coleccion" });
+  return router.push({ path: "/", query: { oferta: offerId }, hash: "#regalos" });
 }
 
 function changeProductQuantity(amount: number) {
@@ -256,11 +259,7 @@ function productImage(url: string, width: number, height: number) {
   const effect = hasBlackBg ? ",e_make_transparent" : "";
   return url.replace("/upload/", `/upload/c_pad,b_auto${effect},f_auto,q_auto,w_${width},h_${height}/`);
 }
-const categories = ["Todos", "Preservados", "Naturales"];
-const HOME_PRODUCTS = 6;
 const PAGE_SIZE = 6;
-const homeProducts = computed(() => products.value.slice(0, HOME_PRODUCTS));
-const displayedProducts = computed(() => showFullCatalog.value ? activeCategory.value === "Todos" ? products.value : products.value.filter((product) => product.categories?.includes(activeCategory.value)) : homeProducts.value);
 
 function productScaleClass(item: Product) {
   const sku = (item.sku || '').toUpperCase();
@@ -787,106 +786,6 @@ watch(showFullCatalog, async (val) => {
       </div>
     </section>
 
-    <section id="coleccion" class="collection">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">¿Buscas otra cosa?</p>
-          <h2>Todo el<br />catálogo.</h2>
-        </div>
-        <p>
-          Nuestros arreglos preservados para celebrar, agradecer y acompañar los
-          momentos que importan.
-          <span class="section-shipping">Envío gratis: solo eliges tu sector de entrega.</span>
-        </p>
-      </div>
-      <p v-if="errorMessage" class="error">
-        {{ errorMessage }}
-      </p>
-      <div class="catalog-search">
-        <div class="search-wrapper">
-          <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          <input
-            v-model="searchQuery"
-            type="search"
-            placeholder="Buscar por nombre, código o colección..."
-            class="search-input"
-            aria-label="Buscar productos"
-          />
-          <button v-if="searchQuery" type="button" class="clear-search" @click="searchQuery = ''">×</button>
-        </div>
-      </div>
-      <div class="catalog-filters">
-        <p class="filters-label">Categorías</p>
-        <div class="category-filters" role="group" aria-label="Filtrar por categoría">
-          <button v-for="category in categories" :key="category" type="button" :class="{ active: activeCategory === category }" @click="activeCategory = category">{{ category }}</button>
-        </div>
-      </div>
-      <div class="featured-label">
-        <button
-          v-for="sortOption in [{ id: 'quality', label: 'Ordenados por calidad' }, { id: 'featured', label: 'Primero los destacados' }, { id: 'seasonal', label: 'De la temporada' }]"
-          :key="sortOption.id"
-          type="button"
-          :class="{ active: activeSort === sortOption.id }"
-          @click="activeSort = sortOption.id"
-        >
-          {{ sortOption.label }}
-        </button>
-      </div>
-      <div class="product-list" :class="{ 'home-grid': !showFullCatalog }">
-        <template v-if="isLoading"
-          ><article
-            v-for="index in PAGE_SIZE"
-            :key="index"
-            class="product-card skeleton"
-          >
-            <div class="product-image"></div>
-            <div class="skeleton-line"></div>
-            <div class="skeleton-line short"></div></article
-        ></template>
-        <article
-          v-for="product in displayedProducts"
-          :key="product._id"
-          class="product-card"
-        >
-          <RouterLink
-            class="product-image image-loading"
-            :class="[{ 'image-ready': loadedImages.has(product.image) }, productScaleClass(product)]"
-            :to="productLink(product)"
-            :aria-label="`Ver y comprar ${product.name}`"
-          >
-            <img :src="productImage(product.image, 720, 780)" :alt="product.name" @load="markImageLoaded(product.image)" /><span>{{ product.dimensions }}</span>
-            <small class="product-reference">Imagen referencial</small>
-            <b v-if="product.webExclusive" class="web-exclusive">Web exclusivo · {{ product.discountPercentage }}% OFF</b>
-          </RouterLink>
-          <div class="product-info">
-            <div>
-              <h3><RouterLink :to="productLink(product)">{{ product.name }}</RouterLink></h3>
-              <p>{{ product.sku }} · {{ product.dimensions }}</p>
-              <p>{{ product.description }}</p>
-            </div>
-            <div class="product-bottom">
-              <div class="product-price">
-                <del v-if="product.regularPrice">{{ formatPrice(product.regularPrice) }}</del>
-                <strong>{{ formatPrice(product.price) }}</strong>
-              </div>
-              <button class="product-purchase" type="button" @click="buyNow(product)">
-                Comprar ahora <span>→</span>
-              </button>
-            </div>
-          </div>
-        </article>
-        <div ref="sentinel" v-if="showFullCatalog && hasMore" class="catalog-sentinel">
-          <span v-if="isLoadingMore">Cargando más arreglos...</span>
-        </div>
-      </div>
-      <div class="catalog-toggle">
-        <button v-if="!showFullCatalog" type="button" @click="showFullCatalog = true">Ver todos los productos <span>↓</span></button>
-        <button v-else type="button" @click="showFullCatalog = false; activeCategory = 'Todos'">Ver menos <span>↑</span></button>
-      </div>
-    </section>
-
     <section class="manifesto">
       <p class="eyebrow">Bruval, con amor</p>
       <p class="manifesto-copy">
@@ -901,7 +800,7 @@ watch(showFullCatalog, async (val) => {
       <nav class="breadcrumb" aria-label="Ruta de navegación">
         <RouterLink :to="{ path: '/', query: { oferta: offerId } }">Inicio</RouterLink>
         <span aria-hidden="true">/</span>
-        <RouterLink :to="{ path: '/', query: { oferta: offerId }, hash: '#coleccion' }">{{ productCategory }}</RouterLink>
+        <RouterLink :to="{ path: '/', query: { oferta: offerId }, hash: '#regalos' }">Regalos</RouterLink>
         <span aria-hidden="true">/</span>
         <b>{{ landing?.name || pageProduct?.name || "Arreglo" }}</b>
       </nav>
@@ -923,7 +822,7 @@ watch(showFullCatalog, async (val) => {
         <p class="eyebrow">Colección Bruval</p>
         <h1>Este arreglo<br /><i>ya voló.</i></h1>
         <p>{{ productError }}</p>
-        <button class="primary-button" type="button" @click="goToCollection">Ver toda la colección <span>→</span></button>
+        <button class="primary-button" type="button" @click="goToCollection">Ver los 3 regalos <span>→</span></button>
       </div>
 
       <div v-else-if="pageProduct" class="product-page-grid">
@@ -1046,6 +945,13 @@ watch(showFullCatalog, async (val) => {
           </div>
         </section>
 
+        <div class="landing-cta">
+          <button class="primary-button" type="button" @click="buyNow(pageProduct, productQuantity, selectedColor || undefined)">
+            Lo quiero · {{ formatPrice(productTotal) }} <span>→</span>
+          </button>
+          <p>Envío gratis · Llega desde 2 horas · Pago seguro con PayPhone</p>
+        </div>
+
         <section class="landing-steps" aria-labelledby="landing-steps-title">
           <p class="eyebrow">Así de simple</p>
           <h2 id="landing-steps-title">Tú pides, nosotros<br />nos encargamos.</h2>
@@ -1055,6 +961,13 @@ watch(showFullCatalog, async (val) => {
             <li><b>Lo entregamos</b> en Guayaquil, Samborondón o Durán, desde 2 horas después de tu pago. Envío gratis.</li>
           </ol>
         </section>
+
+        <div class="landing-cta">
+          <button class="primary-button" type="button" @click="buyNow(pageProduct, productQuantity, selectedColor || undefined)">
+            Pedirlo ahora · {{ formatPrice(productTotal) }} <span>→</span>
+          </button>
+          <p>Envío gratis · Llega desde 2 horas · Pago seguro con PayPhone</p>
+        </div>
 
         <section class="landing-faq" aria-labelledby="landing-faq-title">
           <p class="eyebrow">Preguntas frecuentes</p>
@@ -1088,7 +1001,7 @@ watch(showFullCatalog, async (val) => {
             <p class="eyebrow">Sigue explorando</p>
             <h2>También te<br />puede gustar.</h2>
           </div>
-          <button class="text-link" type="button" @click="goToCollection">Ver toda la colección <span>→</span></button>
+          <button class="text-link" type="button" @click="goToCollection">Ver los 3 regalos <span>→</span></button>
         </div>
         <div class="product-list related-list">
           <article v-for="product in relatedProducts" :key="product._id" class="product-card">
@@ -1121,7 +1034,7 @@ watch(showFullCatalog, async (val) => {
 
       <div v-if="pageProduct" class="mobile-buy-bar" :class="{ hidden: isCartOpen }">
         <div>
-          <span>{{ landing?.name || pageProduct.name }}</span>
+          <span>{{ landing?.name || pageProduct.name }}{{ selectedColor ? ` · ${selectedColor}` : "" }}</span>
           <strong>{{ formatPrice(productTotal) }}</strong>
         </div>
         <button class="primary-button" type="button" @click="buyNow(pageProduct, productQuantity, selectedColor || undefined)">Comprar ahora <span>→</span></button>
@@ -1137,8 +1050,8 @@ watch(showFullCatalog, async (val) => {
       <div v-if="!cart.length && checkoutStep === 'details'" class="product-missing">
         <p class="eyebrow">Checkout seguro</p>
         <h1>Tu selección<br /><i>está vacía.</i></h1>
-        <p>Elige un arreglo de la colección para continuar con tu compra.</p>
-        <button class="primary-button" type="button" @click="goToCollection">Ver toda la colección <span>→</span></button>
+        <p>Elige uno de nuestros 3 regalos para continuar con tu compra.</p>
+        <button class="primary-button" type="button" @click="goToCollection">Ver los 3 regalos <span>→</span></button>
       </div>
 
       <template v-else>
@@ -3483,8 +3396,66 @@ textarea {
 .landing-final .whatsapp-product {
   margin-top: 12px;
 }
+.landing-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 28px 5vw 70px;
+  text-align: center;
+}
+.landing-cta .primary-button {
+  width: min(100%, 460px);
+  padding: 20px 22px;
+  font-size: 14px;
+}
+.landing-cta p {
+  color: $text-secondary;
+  font-size: 12px;
+}
+.product-page {
+  padding-bottom: 120px;
+}
 .mobile-buy-bar {
-  display: none;
+  position: fixed;
+  z-index: 6;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 4vw calc(12px + env(safe-area-inset-bottom));
+  background: rgba($white, 0.96);
+  border-top: 1px solid rgba($primary, 0.12);
+  backdrop-filter: blur(14px);
+  transition: transform 0.25s;
+}
+.mobile-buy-bar.hidden {
+  transform: translateY(110%);
+}
+.mobile-buy-bar > div {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mobile-buy-bar span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: $text-secondary;
+}
+.mobile-buy-bar strong {
+  color: #a9473f;
+  font: 600 18px "DM Mono", monospace;
+}
+.mobile-buy-bar .primary-button {
+  width: auto;
+  gap: 14px;
+  padding: 14px 22px;
 }
 @media (max-width: 800px) {
   .landing-gallery {
@@ -3507,9 +3478,6 @@ textarea {
   }
 }
 @media (max-width: 800px) {
-  .product-page {
-    padding-bottom: 120px;
-  }
   .product-page-grid {
     grid-template-columns: 1fr;
     gap: 26px;
@@ -3526,47 +3494,6 @@ textarea {
   }
   .related-list {
     grid-template-columns: 1fr;
-  }
-  .mobile-buy-bar {
-    position: fixed;
-    z-index: 6;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding: 12px 4vw calc(12px + env(safe-area-inset-bottom));
-    background: rgba($white, 0.96);
-    border-top: 1px solid rgba($primary, 0.12);
-    backdrop-filter: blur(14px);
-    transition: transform 0.25s;
-  }
-  .mobile-buy-bar.hidden {
-    transform: translateY(110%);
-  }
-  .mobile-buy-bar > div {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .mobile-buy-bar span {
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    font-size: 12px;
-    color: $text-secondary;
-  }
-  .mobile-buy-bar strong {
-    color: #a9473f;
-    font: 600 18px "DM Mono", monospace;
-  }
-  .mobile-buy-bar .primary-button {
-    width: auto;
-    gap: 14px;
-    padding: 14px 16px;
   }
 }
 

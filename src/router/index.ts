@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { trackMeta } from '@/services/metaPixel'
+import { landingBySlug, landings } from '@/config/landings'
 
 const routes: Array<RouteRecordRaw> = [
   {
@@ -12,6 +13,13 @@ const routes: Array<RouteRecordRaw> = [
     path: '/producto/:slug',
     name: 'Product',
     component: () => import('../views/ProductView.vue'),
+    // Campaña: solo se venden los tres productos de las landings; el resto vuelve a la portada.
+    beforeEnter: (to) => {
+      const slug = String(to.params.slug).toLowerCase()
+      if (landingBySlug(slug)) return true
+      const page = landings.find((landing) => landing.productSlug === slug)
+      return page ? { path: `/producto/${page.slug}`, query: to.query } : { path: '/', query: to.query }
+    },
     meta: { title: 'Comprar flores | Bruval', description: 'Compra este arreglo floral con envío gratis en Guayaquil.' },
   },
   {
