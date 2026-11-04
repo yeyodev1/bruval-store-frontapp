@@ -3,11 +3,52 @@
 
 <template>
   <div class="app-container">
-    <RouterView />
+    <RouterView v-slot="{ Component, route }">
+      <Transition name="page" mode="out-in">
+        <component :is="Component" :key="route.path" />
+      </Transition>
+    </RouterView>
   </div>
 </template>
 
 <style lang="scss">
+/* Solo opacidad: un transform en la página rompería los elementos fijos (carrito, barra de compra). */
+.page-enter-active {
+  transition: opacity 0.28s ease;
+}
+.page-leave-active {
+  transition: opacity 0.16s ease;
+}
+.page-enter-from,
+.page-leave-to {
+  opacity: 0;
+}
+
+.reveal {
+  opacity: 0;
+  transform: translateY(26px);
+  transition:
+    opacity 0.7s cubic-bezier(0.2, 0.8, 0.2, 1),
+    transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .page-enter-active,
+  .page-leave-active {
+    transition: none;
+  }
+}
+
 .app-container {
   min-height: 100vh;
   display: flex;

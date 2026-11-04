@@ -76,10 +76,11 @@ const routes: Array<RouteRecordRaw> = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
-  scrollBehavior(to, _from, savedPosition) {
-    if (savedPosition) return savedPosition
-    if (to.hash) return { el: to.hash, behavior: 'smooth' }
-    return { left: 0, top: 0 }
+  // Espera a que termine el fundido de salida de la página (App.vue) antes de desplazar.
+  scrollBehavior(to, from, savedPosition) {
+    const position = savedPosition || (to.hash ? { el: to.hash, behavior: 'smooth' as const } : { left: 0, top: 0 })
+    if (to.path === from.path) return position
+    return new Promise((resolve) => setTimeout(() => resolve(position), 200))
   },
 })
 

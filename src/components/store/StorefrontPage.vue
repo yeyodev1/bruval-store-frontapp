@@ -758,7 +758,7 @@ watch(showFullCatalog, async (val) => {
     </section>
 
     <section id="regalos" class="gifts">
-      <div class="section-heading">
+      <div v-reveal class="section-heading">
         <div>
           <p class="eyebrow">Los más pedidos</p>
           <h2>Tres regalos<br />que no fallan.</h2>
@@ -770,9 +770,14 @@ watch(showFullCatalog, async (val) => {
         </p>
       </div>
       <div class="gift-grid">
-        <article v-for="page in landings" :key="page.slug" class="gift-card">
-          <RouterLink class="gift-image" :to="{ path: `/producto/${page.slug}`, query: { oferta: offerId } }" :aria-label="`Ver ${page.name}`">
-            <img :src="page.images[0]?.src" :alt="page.images[0]?.alt" loading="lazy" />
+        <article v-for="(page, index) in landings" :key="page.slug" v-reveal="index * 120" class="gift-card">
+          <RouterLink
+            class="gift-image image-loading"
+            :class="{ 'image-ready': loadedImages.has(page.images[0]?.src || '') }"
+            :to="{ path: `/producto/${page.slug}`, query: { oferta: offerId } }"
+            :aria-label="`Ver ${page.name}`"
+          >
+            <img :src="page.images[0]?.src" :alt="page.images[0]?.alt" loading="lazy" @load="markImageLoaded(page.images[0]?.src || '')" />
           </RouterLink>
           <p class="eyebrow">{{ page.eyebrow }}</p>
           <h3><RouterLink :to="{ path: `/producto/${page.slug}`, query: { oferta: offerId } }">{{ page.name }}</RouterLink></h3>
@@ -780,13 +785,13 @@ watch(showFullCatalog, async (val) => {
             <li v-for="highlight in page.highlights.slice(0, 2)" :key="highlight">{{ highlight }}</li>
           </ul>
           <RouterLink class="primary-button" :to="{ path: `/producto/${page.slug}`, query: { oferta: offerId } }">
-            Ver y comprar<template v-if="giftProducts[page.slug]"> · {{ formatPrice(giftProducts[page.slug]!.price) }}</template> <span>→</span>
+            <span class="gift-cta">Ver y comprar<Transition name="fade"><b v-if="giftProducts[page.slug]"> · {{ formatPrice(giftProducts[page.slug]!.price) }}</b></Transition></span> <span>→</span>
           </RouterLink>
         </article>
       </div>
     </section>
 
-    <section class="manifesto">
+    <section v-reveal class="manifesto">
       <p class="eyebrow">Bruval, con amor</p>
       <p class="manifesto-copy">
         “No enviamos solamente flores. Enviamos el pequeño segundo en el que
@@ -809,6 +814,7 @@ watch(showFullCatalog, async (val) => {
         <strong>Termina en {{ countdown }}</strong>
       </div>
 
+      <Transition name="fade" mode="out-in">
       <div v-if="isProductLoading && !pageProduct" class="product-page-grid">
         <div class="product-gallery skeleton"></div>
         <div class="product-buy">
@@ -828,11 +834,14 @@ watch(showFullCatalog, async (val) => {
       <div v-else-if="pageProduct" class="product-page-grid">
         <div v-if="landing" class="landing-gallery">
           <div class="product-gallery landing-photo">
-            <img
-              :src="landing.images[activeLandingImage]?.src"
-              :alt="landing.images[activeLandingImage]?.alt"
-              fetchpriority="high"
-            />
+            <Transition name="photo">
+              <img
+                :key="activeLandingImage"
+                :src="landing.images[activeLandingImage]?.src"
+                :alt="landing.images[activeLandingImage]?.alt"
+                fetchpriority="high"
+              />
+            </Transition>
             <b v-if="pageProduct.webExclusive" class="web-exclusive">Web exclusivo · {{ pageProduct.discountPercentage }}% OFF</b>
           </div>
           <div class="landing-thumbs" role="group" aria-label="Fotos del producto">
@@ -901,7 +910,7 @@ watch(showFullCatalog, async (val) => {
             Quiero este producto por WhatsApp
           </a>
 
-          <div v-if="landing" class="landing-includes">
+          <div v-if="landing" v-reveal class="landing-includes">
             <h2>Qué recibe</h2>
             <ul>
               <li v-for="item in landing.includes" :key="item">{{ item }}</li>
@@ -932,12 +941,14 @@ watch(showFullCatalog, async (val) => {
         </div>
       </div>
 
+      </Transition>
+
       <template v-if="landing && pageProduct">
-        <section class="landing-reasons" aria-labelledby="landing-reasons-title">
+        <section v-reveal class="landing-reasons" aria-labelledby="landing-reasons-title">
           <p class="eyebrow">Por qué funciona</p>
           <h2 id="landing-reasons-title">{{ landing.reasonsTitle }}</h2>
           <div class="landing-reasons-grid">
-            <article v-for="(reason, index) in landing.reasons" :key="reason.title">
+            <article v-for="(reason, index) in landing.reasons" :key="reason.title" v-reveal="index * 120">
               <span>0{{ index + 1 }}</span>
               <h3>{{ reason.title }}</h3>
               <p>{{ reason.text }}</p>
@@ -945,14 +956,14 @@ watch(showFullCatalog, async (val) => {
           </div>
         </section>
 
-        <div class="landing-cta">
+        <div v-reveal class="landing-cta">
           <button class="primary-button" type="button" @click="buyNow(pageProduct, productQuantity, selectedColor || undefined)">
             Lo quiero · {{ formatPrice(productTotal) }} <span>→</span>
           </button>
           <p>Envío gratis · Llega desde 2 horas · Pago seguro con PayPhone</p>
         </div>
 
-        <section class="landing-steps" aria-labelledby="landing-steps-title">
+        <section v-reveal class="landing-steps" aria-labelledby="landing-steps-title">
           <p class="eyebrow">Así de simple</p>
           <h2 id="landing-steps-title">Tú pides, nosotros<br />nos encargamos.</h2>
           <ol>
@@ -962,14 +973,14 @@ watch(showFullCatalog, async (val) => {
           </ol>
         </section>
 
-        <div class="landing-cta">
+        <div v-reveal class="landing-cta">
           <button class="primary-button" type="button" @click="buyNow(pageProduct, productQuantity, selectedColor || undefined)">
             Pedirlo ahora · {{ formatPrice(productTotal) }} <span>→</span>
           </button>
           <p>Envío gratis · Llega desde 2 horas · Pago seguro con PayPhone</p>
         </div>
 
-        <section class="landing-faq" aria-labelledby="landing-faq-title">
+        <section v-reveal class="landing-faq" aria-labelledby="landing-faq-title">
           <p class="eyebrow">Preguntas frecuentes</p>
           <h2 id="landing-faq-title">Antes de comprar.</h2>
           <details v-for="faq in landing.faqs" :key="faq.question">
@@ -978,7 +989,7 @@ watch(showFullCatalog, async (val) => {
           </details>
         </section>
 
-        <section class="landing-final">
+        <section v-reveal class="landing-final">
           <img :src="landing.images[2]?.src" :alt="landing.images[2]?.alt" loading="lazy" />
           <div>
             <p class="eyebrow">{{ landing.eyebrow }}</p>
@@ -1032,6 +1043,7 @@ watch(showFullCatalog, async (val) => {
         </div>
       </div>
 
+      <Transition name="bar">
       <div v-if="pageProduct" class="mobile-buy-bar" :class="{ hidden: isCartOpen }">
         <div>
           <span>{{ landing?.name || pageProduct.name }}{{ selectedColor ? ` · ${selectedColor}` : "" }}</span>
@@ -1039,6 +1051,7 @@ watch(showFullCatalog, async (val) => {
         </div>
         <button class="primary-button" type="button" @click="buyNow(pageProduct, productQuantity, selectedColor || undefined)">Comprar ahora <span>→</span></button>
       </div>
+      </Transition>
     </section>
     <section v-else class="checkout-page">
       <nav class="breadcrumb" aria-label="Ruta de navegación">
@@ -1072,6 +1085,7 @@ watch(showFullCatalog, async (val) => {
         </header>
         <div class="checkout-page-grid" :class="{ paying: checkoutStep === 'payment' }">
           <div class="checkout-main">
+            <Transition name="fade" mode="out-in">
             <form
               v-if="checkoutStep === 'details'"
               class="checkout-form"
@@ -1217,7 +1231,8 @@ watch(showFullCatalog, async (val) => {
                 type="submit"
               >
                 {{ isSubmitting ? "Preparando pago..." : `Revisar y pagar ${formatPrice(total)}` }}
-                <span>→</span>
+                <span v-if="isSubmitting" class="button-spinner" aria-hidden="true"></span>
+                <span v-else>→</span>
               </button>
               <p class="checkout-secure-note full">Pago seguro con tarjeta por PayPhone. Aún no se te cobra: primero revisas tu pedido.</p>
               <button class="whatsapp-button full" type="button" @click="isCheckoutWhatsAppOpen = true">
@@ -1238,6 +1253,7 @@ watch(showFullCatalog, async (val) => {
                 ← Editar información
               </button>
             </div>
+            </Transition>
           </div>
 
           <aside class="checkout-summary" aria-label="Resumen del pedido">
@@ -1393,7 +1409,7 @@ watch(showFullCatalog, async (val) => {
         </dl>
         <p class="delivery-warning-notice">Revisa que el sector sea el correcto: define la ruta del repartidor. Si no coincide con la dirección, no podemos asegurar la entrega en el horario elegido.</p>
         <div class="delivery-warning-actions">
-          <button class="primary-button" :disabled="isSubmitting" type="button" @click="isDeliveryZoneWarningOpen = false; beginPayment()">Sí, ir a pagar {{ formatPrice(total) }} <span>→</span></button>
+          <button class="primary-button" :disabled="isSubmitting" type="button" @click="isDeliveryZoneWarningOpen = false; beginPayment()">{{ isSubmitting ? "Preparando pago..." : `Sí, ir a pagar ${formatPrice(total)}` }} <span v-if="isSubmitting" class="button-spinner" aria-hidden="true"></span><span v-else>→</span></button>
           <button class="delivery-warning-back" type="button" @click="isDeliveryZoneWarningOpen = false">Corregir algo</button>
         </div>
       </aside>
@@ -1645,6 +1661,7 @@ h1 i {
   flex-direction: column;
 }
 .gift-image {
+  position: relative;
   display: block;
   aspect-ratio: 4 / 5;
   margin-bottom: 20px;
@@ -2719,6 +2736,33 @@ textarea {
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.3s ease;
+}
+.photo-enter-active,
+.photo-leave-active {
+  transition: opacity 0.4s ease;
+}
+.photo-leave-active {
+  position: absolute;
+  inset: 0;
+}
+.photo-enter-from,
+.photo-leave-to {
+  opacity: 0;
+}
+.bar-enter-from,
+.bar-leave-to {
+  transform: translateY(110%);
+}
+.button-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.gift-cta b {
+  font-weight: inherit;
 }
 .fade-enter-from,
 .fade-leave-to {
