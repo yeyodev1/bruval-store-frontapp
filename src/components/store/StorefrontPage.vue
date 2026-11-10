@@ -78,8 +78,6 @@ const hasMore = ref(false);
 const isLoadingMore = ref(false);
 const catalogTotal = ref(0);
 const sentinel = ref<HTMLElement | null>(null);
-const isCheckoutWhatsAppOpen = ref(false);
-const isCheckoutWhatsAppConfirmationOpen = ref(false);
 const isDeliveryZoneWarningOpen = ref(false);
 /** Vuelta del pago: /checkout?entrega=<pedido>&pago=<id de PayPhone> pide los datos de entrega. */
 const deliveryOrder = currentUrl.searchParams.get("entrega") || "";
@@ -296,22 +294,6 @@ function markImageLoaded(src: string) {
 }
 const offerRemaining = computed(() => Math.max(0, new Date(offer.value?.expiresAt || 0).getTime() - now.value));
 const isOfferActive = computed(() => Boolean(offer.value?.active && offerRemaining.value > 0));
-const checkoutWhatsApp = computed(() => {
-  const items = cart.value.map((item) => `- ${item.quantity} x ${itemLabel(item)}`).join("\n");
-  const message = [
-    "Hola, equipo Bruval. Estoy preparando una compra y me gustaría que me acompañen.",
-    "",
-    "Quisiera confirmar que todo está bien antes de pagar y recibir apoyo para coordinar una entrega especial.",
-    "",
-    `Mi selección:\n${items || "Aún estoy eligiendo mis flores."}`,
-    cart.value.length ? `Total estimado: ${formatPrice(total.value)}` : "",
-    checkout.value.firstName ? `Mi nombre: ${checkout.value.firstName} ${checkout.value.lastName}`.trim() : "",
-    checkout.value.date ? `Entrega deseada: ${checkout.value.date}, ${checkout.value.timeSlot}` : "",
-    "",
-    "Gracias por ayudarme a que este gesto llegue de la mejor manera.",
-  ].filter(Boolean).join("\n");
-  return `https://wa.me/593999480437?text=${encodeURIComponent(message)}`;
-});
 const countdown = computed(() => {
   const totalSeconds = Math.floor(offerRemaining.value / 1000);
   const hours = Math.floor(totalSeconds / 3600);
@@ -446,22 +428,6 @@ function openCheckout() {
   // montar: se guarda ya, sin esperar al watcher.
   localStorage.setItem("bruval-cart", JSON.stringify(cart.value));
   if (!isCheckoutPage.value) void router.push({ path: "/checkout", query: { oferta: offerId } });
-}
-
-function openCheckoutWhatsApp() {
-  isCartOpen.value = false;
-  isCheckoutWhatsAppOpen.value = true;
-}
-
-function trackWhatsAppCheckout() {
-  isCheckoutWhatsAppConfirmationOpen.value = false;
-  trackMeta("Lead", {
-    content_name: "WhatsApp Checkout",
-    content_ids: cart.value.map((item) => item.sku),
-    content_type: "product",
-    value: total.value,
-    currency: "USD",
-  });
 }
 
 async function beginPayment() {
@@ -1156,9 +1122,6 @@ watch(showFullCatalog, async (val) => {
                 <span v-else>→</span>
               </button>
               <p class="checkout-secure-note full">Pago seguro por PayPhone. Después del pago eliges quién lo recibe, cuándo y el mensaje de la tarjeta.</p>
-              <button class="whatsapp-button full" type="button" @click="isCheckoutWhatsAppOpen = true">
-                ¿Prefieres comprar por WhatsApp? ↗
-              </button>
             </form>
             <div v-else-if="checkoutStep === 'payment'" class="payment-step">
               <div id="payphone-button" class="payphone-loading">
@@ -1328,12 +1291,10 @@ watch(showFullCatalog, async (val) => {
 
     <Transition name="fade"
       ><div
-        v-if="isCartOpen || isCheckoutWhatsAppOpen || isCheckoutWhatsAppConfirmationOpen || isDeliveryZoneWarningOpen"
+        v-if="isCartOpen || isDeliveryZoneWarningOpen"
         class="backdrop"
         @click.self="
            isCartOpen = false;
-            isCheckoutWhatsAppOpen = false;
-            isCheckoutWhatsAppConfirmationOpen = false;
             isDeliveryZoneWarningOpen = false;
         "
       ></div
@@ -1384,37 +1345,10 @@ watch(showFullCatalog, async (val) => {
           <button class="primary-button" type="button" @click="openCheckout">
             Continuar al checkout <span>→</span>
           </button>
-          <button class="whatsapp-button" type="button" @click="openCheckoutWhatsApp">
-            Terminar compra por WhatsApp ↗
-          </button>
         </div>
       </aside></Transition
     >
 
-    <Transition name="modal">
-      <aside v-if="isCheckoutWhatsAppOpen" class="modal checkout-whatsapp-modal" role="dialog" aria-modal="true" aria-labelledby="whatsapp-checkout-title">
-        <button class="close" type="button" aria-label="Cerrar" @click="isCheckoutWhatsAppOpen = false">×</button>
-        <p class="eyebrow">Compra por WhatsApp</p>
-        <h2 id="whatsapp-checkout-title">Estamos contigo<br>en cada paso.</h2>
-        <p class="priority-warning">Importante: al continuar por WhatsApp, tu pedido no queda confirmado ni reservado. La compra y el pago por esta web tienen prioridad máxima y confirman tu selección al instante.</p>
-        <p>Por WhatsApp, un asesor te ayudará según disponibilidad.</p>
-        <p>Enviaremos un resumen de tu selección y entrega para atenderte sin pedirte los datos otra vez. Por favor, no modifiques el primer mensaje.</p>
-        <p class="whatsapp-note">No incluye códigos ni descuentos promocionales.</p>
-        <button type="button" @click="isCheckoutWhatsAppOpen = false; isCheckoutWhatsAppConfirmationOpen = true">Entiendo: WhatsApp no reserva mi pedido →</button>
-      </aside>
-    </Transition>
-    <Transition name="modal">
-      <aside v-if="isCheckoutWhatsAppConfirmationOpen" class="modal checkout-whatsapp-modal checkout-whatsapp-confirmation" role="dialog" aria-modal="true" aria-labelledby="whatsapp-confirmation-title">
-        <button class="close" type="button" aria-label="Cerrar" @click="isCheckoutWhatsAppConfirmationOpen = false">×</button>
-        <p class="eyebrow">Confirmación final</p>
-        <h2 id="whatsapp-confirmation-title">¿Estás seguro?</h2>
-        <p>Al continuar por WhatsApp, tu pedido seguirá sujeto a disponibilidad y no tendrá la confirmación ni la reserva inmediata del pago por web.</p>
-        <div class="whatsapp-confirmation-actions">
-          <button type="button" @click="isCheckoutWhatsAppConfirmationOpen = false">Volver al pago web</button>
-          <a :href="checkoutWhatsApp" target="_blank" rel="noopener" @click="trackWhatsAppCheckout">Sí, continuar por WhatsApp →</a>
-        </div>
-      </aside>
-    </Transition>
     <Transition name="modal">
       <aside v-if="isDeliveryZoneWarningOpen" class="modal delivery-warning-modal" role="dialog" aria-modal="true" aria-labelledby="delivery-warning-title">
         <button class="close" type="button" aria-label="Cerrar" @click="isDeliveryZoneWarningOpen = false">×</button>
@@ -2113,19 +2047,6 @@ footer .brand {
   font-size: 20px;
   line-height: 0;
 }
-.whatsapp-button {
-  width: 100%;
-  border: 1px solid #427a55;
-  padding: 14px 18px;
-  color: #427a55;
-  background: transparent;
-  font: 600 12px $font-principal;
-  cursor: pointer;
-}
-.whatsapp-button:hover {
-  color: #fffaf6;
-  background: #427a55;
-}
 .empty-state {
   margin: auto;
   text-align: center;
@@ -2189,22 +2110,6 @@ footer .brand {
   color: #a9473f;
   font: 600 24px "DM Mono", monospace;
   letter-spacing: -0.06em;
-}
-.checkout-whatsapp-modal {
-  z-index: 12;
-  width: min(440px, 90vw);
-  box-sizing: border-box;
-  padding: 54px 38px 38px;
-}
-.checkout-whatsapp-modal h2 {
-  margin: 16px 0 24px;
-  font-size: 42px;
-  line-height: 0.92;
-}
-.checkout-whatsapp-modal > p:not(.eyebrow) {
-  color: #706663;
-  font-size: 14px;
-  line-height: 1.6;
 }
 .delivery-warning-modal {
   width: min(500px, 92vw);
@@ -2381,49 +2286,6 @@ footer .brand {
   background: transparent;
   font: 600 11px $font-principal;
 }
-.checkout-whatsapp-modal .priority-warning {
-  color: #9a4f58;
-  font-weight: 600;
-}
-.checkout-whatsapp-modal .whatsapp-note {
-  color: #9a4f58;
-  font-size: 12px;
-}
-.checkout-whatsapp-modal a,
-.checkout-whatsapp-modal > button:not(.close) {
-  display: block;
-  width: 100%;
-  box-sizing: border-box;
-  border: 0;
-  margin-top: 24px;
-  padding: 15px 16px;
-  color: #fffaf6;
-  background: #427a55;
-  text-align: center;
-  text-decoration: none;
-  font: 600 12px $font-principal;
-  cursor: pointer;
-}
-.whatsapp-confirmation-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 24px;
-}
-.whatsapp-confirmation-actions a,
-.whatsapp-confirmation-actions button {
-  width: 100%;
-  box-sizing: border-box;
-  margin: 0;
-}
-.whatsapp-confirmation-actions button {
-  border: 1px solid #9a4f58;
-  padding: 14px 16px;
-  color: #9a4f58;
-  background: transparent;
-  font: 600 12px $font-principal;
-  cursor: pointer;
-}
 .checkout-form,
 .payment-step {
   min-width: 0;
@@ -2578,9 +2440,6 @@ footer .brand {
   font-size: 12px;
   line-height: 1.5;
   text-align: center;
-}
-.checkout-form .whatsapp-button {
-  margin-top: 0;
 }
 .delivery-zone {
   min-width: 0;
